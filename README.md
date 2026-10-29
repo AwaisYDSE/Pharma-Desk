@@ -8,6 +8,8 @@
 
 **▶ Open the app: [awaisydse.github.io/Pharma-Desk](https://awaisydse.github.io/Pharma-Desk/)** · **Shop server: [Windows](https://awaisydse.github.io/Pharma-Desk/PharmaDesk-Setup.exe) · [Mac](https://awaisydse.github.io/Pharma-Desk/PharmaDesk-Mac.pkg)**
 
+**Commercial software — a licence key is required. To buy, renew or get support, contact 📧 awaisdpw.co@gmail.com**
+
 PharmaDesk was designed and developed by **Awais Amin**. He built it to give every medical store — from a small corner pharmacy to a busy chain counter — the same tools that large pharmacies pay for: fast billing, batch and expiry control, stock that stays correct across every counter and phone, and full oversight for the owner.
 
 Every part of PharmaDesk, from the shop server and offline sync to the Urdu screens and the AI prescription reader, was planned around how pharmacies in Pakistan actually work: unreliable power and internet, mixed staff, credit customers and strict expiry rules. It helps pharmacies serve patients safely and keep their business in their own hands.
@@ -135,7 +137,11 @@ npm test
 - On Google's free Gemini tier, Google may use what is sent to improve its products; PharmaDesk removes patient details first. AI interaction warnings are a second check for the pharmacist, not a replacement.
 - A phone opening the app over plain `http://` on shop Wi-Fi can't install it for offline start; use the Tailscale or Cloudflare `https://` address for installing.
 
-## License & credit
-MIT © 2026 **Awais Amin**. Please keep the credit line *"Developed by Awais Amin"*.
+## Licence, pricing & support
+PharmaDesk is **commercial software — not free and not open source**. © 2026 **Awais Amin**, all rights reserved (see [LICENSE](LICENSE)). A valid **licence key**, issued by the developer, is required to set up and use it. One key is for one pharmacy; it may not be shared, resold or copied to another business, and the *"Developed by Awais Amin"* credit must stay.
+
+- **Buy / renew / support:** 📧 **awaisdpw.co@gmail.com**
+- **Free support for 1 month** from the date of purchase. After that month, support and updates may be **charged** under a support or renewal plan.
+- A key may carry a plan period; when it ends, billing stops until the licence is renewed. **Your own data is never deleted by expiry** and stays on your own PC.
 
 The built-in medicine list is a starting point only — always check strength, maker and price against the pack and DRAP.

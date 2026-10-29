@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'framer-motion';
 import { AppProvider, useStore } from './store.tsx';
 import { Toasts } from './components.tsx';
-import { OwnerSetup, PairScreen, LoginScreen } from './screens/Auth.tsx';
+import { OwnerSetup, PairScreen, LoginScreen, LicenseGate, type LicenseInfo } from './screens/Auth.tsx';
 import { Shell, MoreMenu } from './screens/Shell.tsx';
 import { Pos } from './screens/Pos.tsx';
 import { Dashboard, Reports } from './screens/Dashboard.tsx';
@@ -35,6 +35,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 function App() {
   const { ctx, user, isServerPc } = useStore();
   const [needsOwner, setNeedsOwner] = useState<boolean | null>(null);
+  const [license, setLicense] = useState<LicenseInfo | null>(null);
   const [, setPaired] = useState(0);
   const [route, setRoute] = useState<string>(() => location.hash.replace('#/', '') || '');
   const [navKey, setNavKey] = useState(0);
@@ -43,7 +44,7 @@ function App() {
   const endSplash = React.useCallback(() => { setSplash(false); try { sessionStorage.setItem('pd-splash', '1'); } catch { /* private mode */ } }, []);
   useEffect(() => {
     if (!isServerPc) { setNeedsOwner(false); return; }
-    fetch('/local/status').then(r => r.json()).then(s => setNeedsOwner(!!s.needsOwner)).catch(() => setNeedsOwner(false));
+    fetch('/local/status').then(r => r.json()).then(s => { setNeedsOwner(!!s.needsOwner); setLicense(s.license || null); }).catch(() => setNeedsOwner(false));
   }, [isServerPc]);
   const go = (r: string) => { setRoute(r); history.replaceState(null, '', `#/${r}`); };
   useEffect(() => {
@@ -54,6 +55,8 @@ function App() {
 
   if (splash) return <Splash onDone={endSplash} />;
   if (needsOwner === null) return null;
+  // Licensed build on the server PC: must have a valid key before anything else.
+  if (license?.on && (license.needsKey || license.locked)) return <LicenseGate info={license} onActivated={() => location.reload()} />;
   if (needsOwner) return <OwnerSetup onDone={() => location.reload()} />;
   if (choosing === 'standalone' && !ctx.pairing && !ctx.standalone) return <OwnerSetup standalone onBack={() => setChoosing(null)} onDone={() => { setChoosing(null); setPaired(n => n + 1); }} />;
   if (!ctx.pairing && !ctx.standalone) return <PairScreen onPaired={() => setPaired(n => n + 1)} />;

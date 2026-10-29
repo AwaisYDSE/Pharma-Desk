@@ -63,7 +63,7 @@ export function About() {
   const line = translate(lang, 'credits');
   const facts = [
     ['Designed & coded by', 'Awais Amin'], ['Made for', 'Medical stores in Pakistan and beyond'],
-    ['Licence', 'MIT (keep the credit)'],
+    ['Licence', 'Commercial — one key per shop'], ['Contact / support', 'awaisdpw.co@gmail.com'],
   ];
   return (
     <>
@@ -92,7 +92,8 @@ export function About() {
           </motion.div>
         ))}
       </div>
-      <p className="small faint" style={{ textAlign: 'center' }}>© {new Date().getFullYear()} Awais Amin · github.com/AwaisYDSE/Pharma-Desk</p>
+      <p className="small faint" style={{ textAlign: 'center' }}>Buy, renew or get support by email. Free support for 1 month from purchase, then charges apply.<br /><a href="mailto:awaisdpw.co@gmail.com" style={{ color: '#5EEAD4' }} data-no-tr="">awaisdpw.co@gmail.com</a></p>
+      <p className="small faint" style={{ textAlign: 'center' }}>© {new Date().getFullYear()} Awais Amin · github.com/AwaisYDSE/Pharma-Desk · Commercial licence, all rights reserved</p>
     </>
   );
 }

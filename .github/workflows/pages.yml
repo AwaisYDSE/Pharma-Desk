@@ -10,6 +10,7 @@ concurrency: { group: pages, cancel-in-progress: true }
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,6 +25,7 @@ jobs:
   windows:
     needs: build
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,25 +45,36 @@ jobs:
       - name: Test-install it like a shop would
         shell: pwsh
         run: |
+          # Silent install (no browser pop-up, no self-delete — those only happen in a real install).
           Copy-Item out\PharmaDesk-Setup.exe "$env:RUNNER_TEMP\PharmaDesk-Setup.exe"
           Start-Process "$env:RUNNER_TEMP\PharmaDesk-Setup.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
-          if (-not (Test-Path "$env:ProgramFiles\PharmaDesk\pharmadesk-node.exe")) { throw 'not installed' }
-          $ok = $false
-          for ($i = 0; $i -lt 40; $i++) {
-            try { $s = Invoke-RestMethod http://127.0.0.1:4317/local/status; if ($s.needsOwner) { $ok = $true; break } } catch {}
-            Start-Sleep 2
-          }
-          if (-not $ok) { Get-Content "$env:ProgramData\PharmaDesk\server.log" -ErrorAction SilentlyContinue; throw 'server did not start' }
-          $page = Invoke-WebRequest http://127.0.0.1:4317/ -UseBasicParsing
-          if ($page.Content -notmatch 'PharmaDesk') { throw 'app page missing' }
+          $exe = "$env:ProgramFiles\PharmaDesk\pharmadesk-node.exe"
+          if (-not (Test-Path $exe)) { throw 'not installed' }
           if (-not ((Get-Item "$env:ProgramData\PharmaDesk" -Force).Attributes -match 'Hidden')) { throw 'data folder not hidden' }
-          Write-Host 'Installed, server running, owner setup waiting.'
+          # Start the server ourselves so we can stop it again (CI must not be left with a server running).
+          $env:PHARMADESK_DATA = "$env:ProgramData\PharmaDesk"; $env:PHARMADESK_OPEN = '0'
+          $p = Start-Process $exe -ArgumentList '--no-warnings',"$env:ProgramFiles\PharmaDesk\server\server.mjs" -PassThru
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              try { $s = Invoke-RestMethod http://127.0.0.1:4317/local/status; if ($s.needsOwner) { $ok = $true; break } } catch {}
+              Start-Sleep 2
+            }
+            if (-not $ok) { Get-Content "$env:ProgramData\PharmaDesk\server.log" -ErrorAction SilentlyContinue; throw 'server did not start' }
+            $page = Invoke-WebRequest http://127.0.0.1:4317/ -UseBasicParsing
+            if ($page.Content -notmatch 'PharmaDesk') { throw 'app page missing' }
+            Write-Host 'Installed, server started, owner setup waiting.'
+          } finally {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            taskkill /f /im pharmadesk-node.exe 2>$null
+          }
       - uses: actions/upload-artifact@v4
         with: { name: windows, path: out/PharmaDesk-Setup.exe }
 
   mac:
     needs: build
     runs-on: macos-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,6 +96,10 @@ jobs:
           curl -fs http://127.0.0.1:4317/local/status | grep -q '"needsOwner":true'
           curl -fs http://127.0.0.1:4317/ | grep -q PharmaDesk
           echo 'Installed, server running, owner setup waiting.'
+          # Stop the server so the step finishes cleanly.
+          launchctl bootout "gui/$(id -u)/pk.pharmadesk.server" 2>/dev/null || true
+          pkill -f 'PharmaDesk.app/Contents/Resources/server/server.mjs' 2>/dev/null || true
+          pkill -f 'server/server.mjs' 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with: { name: mac, path: out/PharmaDesk-Mac.pkg }
 

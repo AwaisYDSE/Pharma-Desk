@@ -16,6 +16,8 @@ import * as sup from './supervision.ts';
 import * as ai from './ai.ts';
 import { pairingPayload, pairingQr, type Endpoints } from './tunnel.ts';
 import { can } from '../shared/permissions.ts';
+import { licensingOn } from '../shared/vendor.ts';
+import { licenseState, activateLicense, installId } from './license.ts';
 import { AppError } from '../shared/util.ts';
 import type { Op, User, Medicine, Batch, Invoice, InvoiceItem } from '../shared/types.ts';
 import { isoDate, addDays, daysBetween } from '../shared/util.ts';
@@ -44,6 +46,13 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   sup.openSessionTable(db);
   const app = express();
   const limiter = new PairLimiter();
+
+  // Licensing lock, kept in memory and refreshed so each request check is instant.
+  // Off entirely unless the vendor enabled it in shared/vendor.ts.
+  const LOCK = { locked: false, needsKey: false };
+  const refreshLock = async () => { try { const s = await licenseState(db); LOCK.locked = s.locked; LOCK.needsKey = s.needsKey; } catch { /* keep last */ } };
+  if (licensingOn()) { void refreshLock(); setInterval(refreshLock, 60_000).unref?.(); }
+  const requireUnlocked = () => { if (LOCK.locked) throw new AppError('LICENSE_LOCKED', 'This copy is not licensed or the plan has ended. Please renew with the vendor.'); };
   app.disable('x-powered-by');
   app.set('trust proxy', false);
   app.use(express.json({ limit: '12mb' }));
@@ -66,6 +75,7 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   app.get('/api/hello', (_req, res) => res.json({ app: 'pharmadesk', v: opts.version || '1.0.0' }));
 
   app.post('/api/pair', (req, res) => {
+    if (LOCK.locked) return res.status(403).json({ code: 'LICENSE_LOCKED', message: 'This copy is not licensed or the plan has ended. Please renew with the vendor.' });
     const r = pairDevice(db, limiter, req.body || {}, clientIp(req));
     if (!r.ok) return res.status(r.status).json({ code: r.code, message: r.message });
     sup.logEvent(db, 'device.paired', { name: req.body?.deviceName, platform: req.body?.platform, ip: clientIp(req) });
@@ -83,9 +93,18 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     return {
       serverId: id.serverId, name: id.name, pin: id.pin, endpoints, qrSvg: qr.svg, qrText: qr.text,
       needsOwner: sup.userCount(db) === 0, devices: listDevices(), blockedToday: blockedToday(db),
+      license: await licenseState(db),
     };
   }));
+  // Paste a licence key (server PC only). Stored only if it verifies.
+  app.post('/local/activate', localOnly, wrap(async req => {
+    const token = String(req.body?.token || '');
+    const st = await activateLicense(db, token);
+    await refreshLock();
+    return { status: st.state, license: await licenseState(db) };
+  }));
   app.post('/local/setup-owner', localOnly, wrap(req => {
+    if (licensingOn() && LOCK.needsKey) throw new AppError('LICENSE_REQUIRED', 'Enter your licence key before setting up the shop.');
     const { name, username, pin, email, shopName, catalog, logo, photo } = req.body || {};
     const img = (v: unknown, max = 400_000) => typeof v === 'string' && v.startsWith('data:image/') && v.length < max ? v : null;
     const owner = sup.createOwner(db, { name, username, pin, email, photo: img(photo) });
@@ -150,6 +169,7 @@ export function createApp(db: DB, opts: AppOptions = {}) {
 
   /* ---------- sync ---------- */
   app.post('/api/ops', wrap(req => {
+    requireUnlocked(); // billing/stock changes stop when unlicensed or expired; reading still works
     const ops: Op[] = Array.isArray(req.body?.ops) ? req.body.ops.slice(0, 200) : [];
     return { results: ops.map(op => applyOp(db, { ...op, deviceId: req.device!.did })) };
   }));

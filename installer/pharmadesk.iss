@@ -53,10 +53,10 @@ Name: "{commonstartup}\PharmaDesk Server"; Filename: "{sys}\wscript.exe"; Parame
 ; Let phones on the shop Wi-Fi reach the server without a Windows Firewall pop-up.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""PharmaDesk"""; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""PharmaDesk"" dir=in action=allow program=""{app}\pharmadesk-node.exe"" enable=yes profile=any"; Flags: runhidden
-; Start PharmaDesk and open the owner setup in the browser.
-Filename: "{sys}\wscript.exe"; Parameters: """{app}\PharmaDesk.vbs"""; Flags: nowait runasoriginaluser
+; Start PharmaDesk and open the owner setup in the browser (only in a normal, visible install).
+Filename: "{sys}\wscript.exe"; Parameters: """{app}\PharmaDesk.vbs"""; Flags: nowait runasoriginaluser; Check: not WizardSilent
 ; Remove the downloaded installer from Downloads once it has done its job.
-Filename: "{cmd}"; Parameters: "/c ping 127.0.0.1 -n 6 >nul & del /f /q ""{srcexe}"""; Flags: runhidden nowait; Check: InDownloads
+Filename: "{cmd}"; Parameters: "/c ping 127.0.0.1 -n 6 >nul & del /f /q ""{srcexe}"""; Flags: runhidden nowait; Check: InDownloads and (not WizardSilent)
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im pharmadesk-node.exe"; Flags: runhidden; RunOnceId: "StopServer"

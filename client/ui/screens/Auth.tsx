@@ -213,3 +213,43 @@ export function LoginScreen() {
     </div>
   );
 }
+
+/** Licence screen on the server PC: paste a key to activate, or renew when the plan has ended.
+ *  Only shown when the vendor turned licensing on. */
+export interface LicenseInfo { on: boolean; locked: boolean; needsKey: boolean; status: string; shop?: string; plan?: string; expires?: string | null; daysLeft?: number | null; vendor: string }
+
+export function LicenseGate({ info, onActivated }: { info: LicenseInfo; onActivated: () => void }) {
+  const [token, setToken] = useState('');
+  const a = useAsync(async () => {
+    const r = await fetch('/local/activate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: token.trim() }) });
+    const d = await r.json().catch(() => ({}));
+    const st = (d.license || {}) as LicenseInfo;
+    if (!st.on || st.locked || st.needsKey) {
+      const msg = st.status === 'expired' ? 'That key has expired. Ask the vendor for a renewal key.'
+        : st.status === 'machine_mismatch' ? 'That key belongs to another PC.'
+        : 'That key is not valid. Check you copied all of it.';
+      throw new Error(msg);
+    }
+    onActivated();
+  });
+  const expired = info.status === 'expired', suspended = info.status === 'suspended';
+  const title = suspended ? 'Your plan is paused' : expired ? 'Your plan has ended' : 'Enter your licence key';
+  const note = suspended ? `Please contact ${info.vendor} to continue.`
+    : expired ? `Your licence ended${info.expires ? ' on ' + info.expires : ''}. Enter a renewal key from ${info.vendor}.`
+    : `PharmaDesk by ${info.vendor} needs a licence key for this shop. Paste the key you were given.`;
+  return (
+    <div className="auth"><FloatingPills />
+      <form className="panel" onSubmit={e => { e.preventDefault(); void a.run(); }}>
+        <Brand sub={title} />
+        <p style={{ margin: 0, color: '#CBD5E1', fontSize: 13, textAlign: 'center' }}>{note}</p>
+        {info.shop && <p style={{ margin: 0, color: '#94A3B8', fontSize: 12, textAlign: 'center' }}>This PC: {info.shop}{info.plan ? ` · ${info.plan}` : ''}</p>}
+        {!suspended && <>
+          <label className="field">Licence key<input className="input" autoFocus value={token} onChange={e => setToken(e.target.value)} placeholder="PD1.…" autoCapitalize="none" spellCheck={false} /></label>
+          {a.err && <motion.span className="err" role="alert" animate={{ x: [8, -6, 4, 0] }}>{a.err}</motion.span>}
+          <button className="btn primary" disabled={a.busy || token.trim().length < 20}>{expired ? 'Renew' : 'Activate'}</button>
+        </>}
+        <LangRow /><Credit />
+      </form>
+    </div>
+  );
+}

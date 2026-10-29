@@ -293,3 +293,22 @@ Object.assign(P5, {
   'Logged out on {0} — {1}': ['{0} پر لاگ آؤٹ — {1}', 'سجّل الخروج على {0} — {1}', '{0} पर लॉग आउट — {1}', 'Cerró sesión en {0}: {1}'],
   'Logged out — {0}': ['لاگ آؤٹ — {0}', 'تسجيل خروج — {0}', 'लॉग आउट — {0}', 'Sesión cerrada: {0}'],
 } satisfies Record<string, Tr>);
+
+// Licence / activation screen (shown only when the vendor turned licensing on).
+Object.assign(P5, {
+  'Enter your licence key': ['اپنی لائسنس کی درج کریں', 'أدخل مفتاح الترخيص', 'अपनी लाइसेंस की दर्ज करें', 'Introduzca su clave de licencia'],
+  'Licence key': ['لائسنس کی', 'مفتاح الترخيص', 'लाइसेंस की', 'Clave de licencia'],
+  'Activate': ['فعال کریں', 'تفعيل', 'सक्रिय करें', 'Activar'],
+  'Renew': ['تجدید کریں', 'تجديد', 'नवीनीकरण करें', 'Renovar'],
+  'This PC:': ['یہ پی سی:', 'هذا الحاسوب:', 'यह पीसी:', 'Este PC:'],
+  'Your plan has ended': ['آپ کا پلان ختم ہو گیا', 'انتهت خطتك', 'आपका प्लान समाप्त हो गया', 'Su plan ha terminado'],
+  'Your plan is paused': ['آپ کا پلان روک دیا گیا ہے', 'خطتك متوقفة مؤقتًا', 'आपका प्लान रोक दिया गया है', 'Su plan está en pausa'],
+  'PharmaDesk by {0} needs a licence key for this shop. Paste the key you were given.': ['{0} کا فارما ڈیسک اس دکان کے لیے لائسنس کی مانگتا ہے۔ آپ کو دی گئی کی پیسٹ کریں۔', 'يحتاج فارما ديسك من {0} إلى مفتاح ترخيص لهذه الصيدلية. الصق المفتاح الذي استلمته.', '{0} का फार्माडेस्क इस दुकान के लिए लाइसेंस की माँगता है। आपको दी गई की पेस्ट करें।', 'PharmaDesk de {0} necesita una clave de licencia para esta farmacia. Pegue la clave que recibió.'],
+  'Please contact {0} to continue.': ['جاری رکھنے کے لیے {0} سے رابطہ کریں۔', 'يرجى التواصل مع {0} للمتابعة.', 'जारी रखने के लिए {0} से संपर्क करें।', 'Contacte con {0} para continuar.'],
+  'Your licence ended{0}. Enter a renewal key from {1}.': ['آپ کا لائسنس ختم ہو گیا{0}۔ {1} سے تجدید کی درج کریں۔', 'انتهى ترخيصك{0}. أدخل مفتاح تجديد من {1}.', 'आपका लाइसेंस समाप्त हो गया{0}। {1} से नवीनीकरण की दर्ज करें।', 'Su licencia terminó{0}. Introduzca una clave de renovación de {1}.'],
+  ' on {0}': [' {0} کو', ' في {0}', ' {0} को', ' el {0}'],
+  'That key belongs to another PC.': ['یہ کی کسی دوسرے پی سی کی ہے۔', 'هذا المفتاح يخص حاسوبًا آخر.', 'यह की किसी दूसरे पीसी की है।', 'Esa clave pertenece a otro PC.'],
+  'That key has expired. Ask the vendor for a renewal key.': ['یہ کی ختم ہو چکی ہے۔ وینڈر سے تجدید کی مانگیں۔', 'انتهت صلاحية هذا المفتاح. اطلب مفتاح تجديد من البائع.', 'यह की समाप्त हो चुकी है। विक्रेता से नवीनीकरण की माँगें।', 'Esa clave ha caducado. Pida una clave de renovación al proveedor.'],
+  'That key is not valid. Check you copied all of it.': ['یہ کی درست نہیں۔ دیکھیں کہ آپ نے پوری کاپی کی ہے۔', 'هذا المفتاح غير صالح. تأكد من نسخه كاملاً.', 'यह की सही नहीं है। देखें कि आपने पूरी कॉपी की है।', 'Esa clave no es válida. Compruebe que la copió completa.'],
+  'Awais Amin · github.com/AwaisYDSE/Pharma-Desk · Commercial licence, all rights reserved': ['اویس امین · github.com/AwaisYDSE/Pharma-Desk · کمرشل لائسنس، جملہ حقوق محفوظ', 'أويس أمين · github.com/AwaisYDSE/Pharma-Desk · ترخيص تجاري، جميع الحقوق محفوظة', 'अवैस अमीन · github.com/AwaisYDSE/Pharma-Desk · कमर्शियल लाइसेंस, सर्वाधिकार सुरक्षित', 'Awais Amin · github.com/AwaisYDSE/Pharma-Desk · Licencia comercial, todos los derechos reservados'],
+} satisfies Record<string, Tr>);

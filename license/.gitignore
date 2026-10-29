@@ -1,0 +1,2 @@
+# NEVER commit the vendor private key.
+vendor-private.json

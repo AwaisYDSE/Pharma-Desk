@@ -20,7 +20,7 @@ let shopServer: Server, plainServer: Server, browser: Browser, shopUrl = '', pla
 // Words that are data or names, not app text.
 const DATA = new Set<string>();
 for (const m of builtinCatalog()) for (const k of ['name', 'generic', 'manufacturer', 'strength'] as const) if (m[k]) DATA.add(String(m[k]));
-const KEEP = /^(PharmaDesk|pharmadesk:…|Al-Shifa Pharmacy|My Pharmacy|Awais Amin|owner|Rs|PDF|CSV|A4|58mm|80mm|FEFO|NTN|STRN|CNIC|Gemini|Tailscale:|Cloudflare:|English|Español|AIza…|https?:\/\/\S+|Awais Amin · github\.com\/\S+|Tab\. Augmentin .*|.*\b(INR|OCD|COPD|ORS|USB|QR|Gemini|API|AI|Chrome|Edge|Windows|PharmaDesk|aistudio\.google\.com|H\. pylori|MIT|PDF|CSV|FEFO)\b.*)$/;
+const KEEP = /^(PharmaDesk|pharmadesk:…|Al-Shifa Pharmacy|My Pharmacy|Awais Amin|owner|Rs|PDF|CSV|A4|58mm|80mm|FEFO|NTN|STRN|CNIC|Gemini|Tailscale:|Cloudflare:|English|Español|AIza…|https?:\/\/\S+|awaisdpw\.co@gmail\.com|.*github\.com\/AwaisYDSE\/Pharma-Desk.*|Tab\. Augmentin .*|.*\b(INR|OCD|COPD|ORS|USB|QR|Gemini|API|AI|Chrome|Edge|Windows|PharmaDesk|aistudio\.google\.com|H\. pylori|MIT|PDF|CSV|FEFO)\b.*)$/;
 
 async function untranslated(page: Page): Promise<string[]> {
   const found: string[] = await page.evaluate(() => {
