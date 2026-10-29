@@ -7,7 +7,7 @@ import { useStore } from '../store.tsx';
 import { Icon, UserAvatar, Modal, PhotoPicker } from '../components.tsx';
 import { Heart } from './About.tsx';
 import { setUserPhoto, resetPin } from '../../core/auth.ts';
-import { can, MODULES } from '../../../shared/permissions.ts';
+import { can, NAV_MODULES as MODULES, ROLE_PRESETS } from '../../../shared/permissions.ts';
 import { LANGS } from '../i18n.ts';
 
 const ICONS: Record<string, string> = {
@@ -16,7 +16,7 @@ const ICONS: Record<string, string> = {
 };
 
 export function Shell({ route, go, children }: { route: string; go: (r: string) => void; children: React.ReactNode }) {
-  const { user, t, online, pending, alerts, lang, setLang, logout, ctx, settings, setSettings } = useStore();
+  const { user, t, online, pending, alerts, lang, setLang, logout, ctx, settings, setSettings, shop } = useStore();
   const [collapsed, setCollapsed] = useState(false);
   const [profile, setProfile] = useState(false);
   const allowed = MODULES.filter(m => can(user, m.key));
@@ -39,7 +39,7 @@ export function Shell({ route, go, children }: { route: string; go: (r: string) 
           <motion.button type="button" className="logo" style={{ border: 0, cursor: 'pointer', overflow: 'hidden', padding: 0, background: '#fff' }} aria-label="Collapse menu" onClick={() => setCollapsed(c => !c)} whileHover={{ rotate: 12, scale: 1.08 }} whileTap={{ scale: .9 }}>
             <img src={settings.logoDataUrl || './brand/logo-mark.png'} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: settings.logoDataUrl ? 0 : 3 }} />
           </motion.button>
-          <div className="col brand-text" style={{ gap: 0 }}><strong style={{ fontSize: 16 }}>PharmaDesk</strong><span className="small faint">{ctx.pairing?.serverName || settings.storeName}</span></div>
+          <div className="col brand-text" style={{ gap: 0 }}><strong style={{ fontSize: 16 }}>PharmaDesk</strong><span className="small faint">{shop?.name || ctx.pairing?.serverName || settings.storeName}</span></div>
         </div>
         {allowed.map(m => (
           <button type="button" key={m.key} className={`nav-item ${route === m.key ? 'on' : ''}`} onClick={() => go(m.key)} title={t(m.key)} style={{ position: 'relative' }}>
@@ -66,10 +66,11 @@ export function Shell({ route, go, children }: { route: string; go: (r: string) 
           <button type="button" className="btn icon sm hide-sm" aria-label={t('theme')} onClick={() => setSettings({ theme: document.documentElement.dataset.theme === 'dark' || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches) ? 'light' : 'dark' })}><Icon name="moon" /></button>
           <button type="button" className="row" style={{ gap: 8, border: 0, background: 'none', cursor: 'pointer', padding: 0, color: 'inherit' }} onClick={() => setProfile(true)} aria-label="My profile">
             <UserAvatar user={user} />
-            <div className="col hide-sm" style={{ gap: 0, textAlign: 'start' }}><strong className="small">{user?.name}</strong><span className="small faint">{user?.owner ? t('owner') : user?.role}</span></div>
+            <div className="col hide-sm" style={{ gap: 0, textAlign: 'start' }}><strong className="small">{user?.name}</strong><span className="small faint">{user?.owner ? t('owner') : (user?.role && ROLE_PRESETS[user.role]?.label) || 'Staff'}</span></div>
           </button>
           <button type="button" className="btn sm" onClick={() => logout()}><Icon name="logout" size={16} /><span className="hide-sm">{t('logout')}</span></button>
         </header>
+        {shop?.supportAccess && <div className="support-banner" role="status"><Icon name="shield" size={16} /> <span>Support access is ON — the developer can connect to help this shop. The owner can turn it off in Settings.</span></div>}
         <AnimatePresence mode="wait">
           <motion.main key={route} className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .18 }}>
             {children}

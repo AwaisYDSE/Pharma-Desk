@@ -5,10 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useStore, useLive } from '../store.tsx';
 import { MedThumb, MedName } from '../MedIcon.tsx';
 import { takeIntent } from '../nav.ts';
-import { Icon, Modal, PatientAvatar, Ecg, SupervisorPrompt, Empty, type Mood } from '../components.tsx';
+import { Icon, Modal, PatientAvatar, Ecg, SupervisorPrompt, Empty, type Mood, confirmAsk } from '../components.tsx';
 import { money } from '../i18n.ts';
 import { SearchIndex } from '../../../shared/search.ts';
-import { newCart, addToCart, setQty, totals, checkout, overrideBatch, batchesFor, type Cart } from '../../core/pos.ts';
+import { newCart, addToCart, setQty, setPrice, totals, checkout, overrideBatch, batchesFor, type Cart } from '../../core/pos.ts';
 import { stockMap } from '../../core/inventory.ts';
 import { checkInteractionsOffline, type InteractionWarning } from '../../../shared/interactions.ts';
 import { parsePrescriptionOffline, type RxItem } from '../../../shared/rxparse.ts';
@@ -60,7 +60,7 @@ export function Pos() {
       const err = e as { code?: string; message: string; details?: { permission?: string } };
       if (err.code === 'OUT_OF_STOCK' && !allowNegative) {
         say('worried', err.message);
-        if (confirm(`${err.message}\n\nSell anyway (stock not yet entered)? This needs approval and is logged.`)) await add(m, qty, true);
+        if (await confirmAsk({ title: 'Stock not entered', message: `${err.message}\n\nSell anyway? This needs approval and is logged.`, danger: true, confirmText: 'Sell anyway' })) await add(m, qty, true);
       } else if (err.code === 'OVERRIDE_REQUIRED') {
         setModal({ sup: err.details!.permission!, then: async () => { const prev = ctx.user; ctx.user = { ...prev!, perms: [...prev!.perms, 'pos.negative_stock'] }; try { await add(m, qty, true); } finally { ctx.user = prev; } } });
       } else toast('bad', err.message);
@@ -193,7 +193,7 @@ export function Pos() {
         <div className="table-wrap">
           {cart.lines.length === 0 ? <Empty icon="cart" text={t('emptyBill')} /> : (
             <table className="t">
-              <thead><tr><th>{t('name')}</th><th>{t('batch')} (FEFO)</th><th>{t('expiry')}</th><th>{t('qty')}</th><th style={{ textAlign: 'end' }}>{t('amount')}</th><th /></tr></thead>
+              <thead><tr><th>{t('name')}</th><th>{t('batch')} (FEFO)</th><th>{t('expiry')}</th><th>{t('qty')}</th><th>{t('price')}</th><th style={{ textAlign: 'end' }}>{t('amount')}</th><th /></tr></thead>
               <tbody>
                 <AnimatePresence initial={false}>
                   {cart.lines.map((l, i) => {
@@ -206,6 +206,7 @@ export function Pos() {
                         <td><span className="qty"><button type="button" aria-label="Less" onClick={() => { setQty(cart, l.key, l.qty - 1); refresh(); }}>−</button>
                           <input className="num" aria-label={t('qty')} value={l.qty} onChange={e => { setQty(cart, l.key, Number(e.target.value) || 0); refresh(); }} />
                           <button type="button" aria-label="More" onClick={async () => { await add(l.medicine, 1); }}>+</button></span></td>
+                        <td><PriceCell value={l.unitPrice} changed={l.listPrice != null && l.unitPrice !== l.listPrice} editable={can(user, 'pos.price')} onChange={v => { try { setPrice(cart, l.key, v); refresh(); } catch (e) { toast('bad', (e as Error).message); } }} /></td>
                         <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(tot.lines[i]?.total || 0, lang)}</td>
                         <td><button type="button" className="btn icon ghost sm" aria-label={t('delete')} onClick={() => { setQty(cart, l.key, 0); refresh(); }}><Icon name="trash" size={16} /></button></td>
                       </motion.tr>
@@ -270,6 +271,20 @@ export function Pos() {
   );
 }
 
+/** Unit price on a bill line. Editable only for users allowed to change prices (pos.price). */
+function PriceCell({ value, changed, editable, onChange }: { value: number; changed: boolean; editable: boolean; onChange: (paisa: number) => void }) {
+  const { lang } = useStore();
+  const [txt, setTxt] = useState((value / 100).toFixed(2));
+  useEffect(() => { setTxt((value / 100).toFixed(2)); }, [value]);
+  if (!editable) return <span className="num">{money(value, lang)}</span>;
+  const commit = () => { const n = Number(txt.replace(/,/g, '')); if (Number.isFinite(n) && n >= 0) onChange(Math.round(n * 100)); else setTxt((value / 100).toFixed(2)); };
+  return (
+    <input className="input num price-in" inputMode="decimal" aria-label="Price" value={txt} title={changed ? 'Price changed' : undefined}
+      style={{ width: 96, padding: '6px 8px', minHeight: 34, borderColor: changed ? 'var(--warn)' : undefined }}
+      onChange={e => setTxt(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); (e.target as HTMLInputElement).blur(); } }} />
+  );
+}
+
 function CameraScan({ onCode }: { onCode: (c: string) => void }) {
   const [open, setOpen] = useState(false);
   const v = useRef<HTMLVideoElement>(null);
@@ -318,7 +333,7 @@ function PatientPicker({ patients, onPick, onClose }: { patients: Patient[]; onP
 }
 
 function BatchPicker({ cart, lineKey, onDone, onNeedSup, onClose }: { cart: Cart; lineKey: string; onDone: () => void; onNeedSup: (then: (id: string) => void) => void; onClose: () => void }) {
-  const { ctx, t } = useStore();
+  const { ctx, t, toast } = useStore();
   const line = cart.lines.find(l => l.key === lineKey)!;
   const batches = useLive(() => batchesFor(ctx, line.medicine.id), [], []);
   const today = isoDate();
@@ -326,7 +341,7 @@ function BatchPicker({ cart, lineKey, onDone, onNeedSup, onClose }: { cart: Cart
     try { await overrideBatch(ctx, cart, lineKey, id, sup); onDone(); }
     catch (e) {
       if ((e as { code?: string }).code === 'OVERRIDE_REQUIRED') onNeedSup(async supId => { const u = await ctx.db.users.get(supId); await pick(id, u); });
-      else alert((e as Error).message);
+      else toast('bad', (e as Error).message);
     }
   };
   return (
@@ -361,7 +376,7 @@ function RxReader({ meds, index, onAdd, onClose }: { meds: Medicine[]; index: Se
     } catch {
       r = { items: parsePrescriptionOffline(text), source: 'offline', note: image ? 'Photos need the server and AI — please type the prescription.' : 'Server not reachable — used the offline reader.' };
     }
-    setNote(r.note || (r.source === 'ai' ? 'Read by Gemini AI — please check before adding.' : ''));
+    setNote(r.note || (r.source === 'ai' ? 'Read by AI — please check before adding.' : ''));
     setItems(r.items.map(i => ({ ...i, match: index.search(`${i.name} ${i.strength || ''}`.trim(), 1)[0] || index.search(i.name, 1)[0] || null })));
     setBusy(false);
   };

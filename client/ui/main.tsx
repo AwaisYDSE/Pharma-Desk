@@ -3,16 +3,16 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'framer-motion';
 import { AppProvider, useStore } from './store.tsx';
-import { Toasts } from './components.tsx';
+import { Toasts , ConfirmHost} from './components.tsx';
 import { OwnerSetup, PairScreen, LoginScreen, LicenseGate, type LicenseInfo } from './screens/Auth.tsx';
 import { Shell, MoreMenu } from './screens/Shell.tsx';
 import { Pos } from './screens/Pos.tsx';
 import { Dashboard, Reports } from './screens/Dashboard.tsx';
 import { Inventory, Purchases, Parties, Invoices, Alerts } from './screens/Stock.tsx';
 import { Users } from './screens/Users.tsx';
-import { Settings, AiPage } from './screens/Settings.tsx';
+import { Settings } from './screens/Settings.tsx';
 import { About, Splash } from './screens/About.tsx';
-import { can, MODULES } from '../../shared/permissions.ts';
+import { can, NAV_MODULES as MODULES } from '../../shared/permissions.ts';
 import './styles.css';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err: Error | null }> {
@@ -67,14 +67,14 @@ function App() {
   const screens: Record<string, React.ReactNode> = {
     dashboard: <Dashboard />, pos: <Pos />, invoices: <Invoices />, inventory: <Inventory />, purchases: <Purchases />,
     suppliers: <Parties kind="suppliers" />, patients: <Parties kind="patients" />, alerts: <Alerts />, reports: <Reports />,
-    ai: <AiPage />, users: <Users />, settings: <Settings />, more: <MoreMenu go={go} />, about: <About />,
+    users: <Users />, settings: <Settings />, more: <MoreMenu go={go} />, about: <About />,
   };
   return <Shell route={r} go={go}><ErrorBoundary key={r + navKey}>{screens[r]}</ErrorBoundary></Shell>;
 }
 
 createRoot(document.getElementById('root')!).render(
   <MotionConfig reducedMotion="user">
-    <AppProvider>{s => s ? <><App /><Toasts /></> : null}</AppProvider>
+    <AppProvider>{s => s ? <><App /><Toasts /><ConfirmHost /></> : null}</AppProvider>
   </MotionConfig>,
 );
 

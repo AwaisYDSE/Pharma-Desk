@@ -11,6 +11,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
   { key: 'dashboard', label: 'Dashboard', actions: [] },
   { key: 'pos', label: 'Point of Sale', actions: [
     { key: 'pos.discount', label: 'Give discounts' },
+    { key: 'pos.price', label: 'Change the selling price at the counter' },
     { key: 'pos.credit_sale', label: 'Credit (udhaar) sales' },
     { key: 'pos.override_fefo', label: 'Sell a newer batch instead of nearest-expiry' },
     { key: 'pos.negative_stock', label: 'Sell items not yet in stock' },
@@ -51,7 +52,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'reports.profit', label: 'See cost prices & profit' },
     { key: 'reports.export', label: 'Export reports (CSV)' },
   ] },
-  { key: 'ai', label: 'AI assistant', actions: [] },
+  { key: 'ai', label: 'Use AI (prescription reader, interaction check)', actions: [] },
   { key: 'users', label: 'Users & Access (see activity)', actions: [
     { key: 'users.create', label: 'Create users' },
     { key: 'users.edit', label: 'Modify users & their permissions' },
@@ -66,6 +67,8 @@ export const PERMISSION_GROUPS: PermGroup[] = [
 ];
 
 export const MODULES = PERMISSION_GROUPS.map(g => ({ key: g.key, label: g.label }));
+/** Modules that get their own screen in the menu (AI lives inside Settings). */
+export const NAV_MODULES = MODULES.filter(m => m.key !== 'ai');
 export const ACTIONS = PERMISSION_GROUPS.flatMap(g => g.actions);
 export const ALL_PERMS: string[] = PERMISSION_GROUPS.flatMap(g => [g.key, ...g.actions.map(a => a.key)]);
 
@@ -74,7 +77,7 @@ export const ROLE_PRESETS: Record<string, { label: string; perms: string[] }> = 
   admin: { label: 'Admin (owner)', perms: ALL_PERMS },
   pharmacist: { label: 'Pharmacist / Supervisor', perms: pick(
     'dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'ai',
-    'pos.discount', 'pos.credit_sale', 'pos.override_fefo', 'pos.negative_stock',
+    'pos.discount', 'pos.price', 'pos.credit_sale', 'pos.override_fefo', 'pos.negative_stock',
     'invoices.view_all', 'invoices.reprint', 'invoices.void',
     'inventory.create', 'inventory.edit', 'inventory.add_stock', 'inventory.adjust',
     'purchases.create', 'purchases.edit', 'purchases.receive',

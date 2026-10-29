@@ -1,6 +1,8 @@
-// Gemini AI service (free Google AI Studio key) with automatic offline fallback.
+// AI service with automatic offline fallback. Works with any common AI key — the provider is
+// recognised from the key itself: Google (AIza…), OpenAI (sk-…), Anthropic (sk-ant-…),
+// Groq (gsk_…, has a free tier) or OpenRouter (sk-or-…).
 //  • The key lives ONLY on the shop server, AES-256-GCM encrypted. Devices never see it.
-//  • Patient names / phones / CNIC are stripped before anything is sent to Google.
+//  • Patient names / phones / CNIC are stripped before anything is sent.
 //  • On a 429 (free limit), bad key, timeout or no internet, every feature falls back
 //    to local rules so the POS never freezes.
 // © Awais Amin
@@ -21,13 +23,15 @@ export function setGeminiKey(db: DB, key: string | null) {
   setSetting(db, 'gemini_key', key ? encryptSecret(key.trim(), id.jwtSecret) : null);
 }
 export function hasGeminiKey(db: DB) { return !!getSetting(db, 'gemini_key'); }
+/** Name of the AI company for the saved key (for the Settings screen), or null. */
+export function keyProvider(db: DB): string | null { const k = getKey(db); return k ? PROVIDER_NAME[providerOf(k)] : null; }
 function getKey(db: DB): string | null {
   const blob = getSetting(db, 'gemini_key');
   return blob ? decryptSecret(blob, getIdentity(db)!.jwtSecret) : null;
 }
 /** After "reset all pairings" the JWT secret changes; re-encrypt the key with it. */
 export function reencryptSecrets(db: DB, oldSecret: string, newSecret: string) {
-  for (const k of ['gemini_key', 'smtp_pass']) {
+  for (const k of ['gemini_key', 'smtp_pass', 'support_pin']) {
     const blob = getSetting(db, k);
     if (!blob) continue;
     const plain = decryptSecret(blob, oldSecret);
@@ -56,46 +60,83 @@ export class AIError extends Error {
   constructor(kind: AIError['kind'], message: string) { super(message); this.kind = kind; }
 }
 
-/** One Gemini call returning parsed JSON. Throws AIError on any failure. */
+export type Provider = 'google' | 'openai' | 'anthropic' | 'groq' | 'openrouter';
+/** Which AI company a key belongs to, from its prefix. */
+export function providerOf(key: string): Provider {
+  const k = key.trim();
+  if (k.startsWith('sk-ant-')) return 'anthropic';
+  if (k.startsWith('sk-or-')) return 'openrouter';
+  if (k.startsWith('gsk_')) return 'groq';
+  if (k.startsWith('sk-')) return 'openai';
+  return 'google';
+}
+export const PROVIDER_NAME: Record<Provider, string> = { google: 'Google', openai: 'OpenAI', anthropic: 'Anthropic', groq: 'Groq', openrouter: 'OpenRouter' };
+const OPENAI_LIKE: Partial<Record<Provider, { base: string; model: string }>> = {
+  openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  groq: { base: 'https://api.groq.com/openai/v1', model: 'meta-llama/llama-4-scout-17b-16e-instruct' },
+  openrouter: { base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini' },
+};
+
+/** One AI call returning parsed JSON. Throws AIError on any failure. */
 async function gemini(db: DB, parts: unknown[], schema: unknown, deps: AIDeps = {}): Promise<unknown> {
   const key = getKey(db);
-  if (!key) throw new AIError('NO_KEY', 'No Gemini key set');
-  const model = getSetting(db, 'gemini_model') || DEFAULT_MODEL;
+  if (!key) throw new AIError('NO_KEY', 'No AI key set');
+  const provider = providerOf(key);
   const f = deps.fetch || fetch;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), deps.timeoutMs ?? 15000);
+  const texts = (parts as { text?: string }[]).filter(p => p.text).map(p => p.text!).join('\n\n');
+  const images = (parts as { inlineData?: { mimeType: string; data: string } }[]).filter(p => p.inlineData).map(p => p.inlineData!);
+  const jsonRule = `\n\nReply with JSON only (no other text), matching this schema:\n${JSON.stringify(schema)}`;
+  let url: string, init: RequestInit;
+  if (provider === 'google') {
+    const model = getSetting(db, 'gemini_model') || DEFAULT_MODEL;
+    url = `${ENDPOINT}/${encodeURIComponent(model)}:generateContent`;
+    init = { method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: schema } }) };
+  } else if (provider === 'anthropic') {
+    url = 'https://api.anthropic.com/v1/messages';
+    const content: unknown[] = images.map(i => ({ type: 'image', source: { type: 'base64', media_type: i.mimeType, data: i.data } }));
+    content.push({ type: 'text', text: texts + jsonRule });
+    init = { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-haiku-5-5', max_tokens: 1500, temperature: 0.1, messages: [{ role: 'user', content }] }) };
+  } else {
+    const cfg = OPENAI_LIKE[provider]!;
+    url = `${cfg.base}/chat/completions`;
+    const content: unknown[] = [{ type: 'text', text: texts + jsonRule }, ...images.map(i => ({ type: 'image_url', image_url: { url: `data:${i.mimeType};base64,${i.data}` } }))];
+    init = { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: cfg.model, temperature: 0.1, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: images.length ? content : texts + jsonRule }] }) };
+  }
   let res: Response;
-  try {
-    res = await f(`${ENDPOINT}/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig: { temperature: 0.1, responseMimeType: 'application/json', responseSchema: schema },
-      }),
-      signal: ctl.signal,
-    });
-  } catch (e) {
-    throw new AIError((e as Error).name === 'AbortError' ? 'TIMEOUT' : 'NETWORK', (e as Error).message);
-  } finally { clearTimeout(timer); }
-  if (res.status === 429) throw new AIError('RATE_LIMIT', 'Free Gemini limit reached for now');
+  try { res = await f(url, { ...init, signal: ctl.signal }); }
+  catch (e) { throw new AIError((e as Error).name === 'AbortError' ? 'TIMEOUT' : 'NETWORK', (e as Error).message); }
+  finally { clearTimeout(timer); }
+  if (res.status === 429) throw new AIError('RATE_LIMIT', 'AI limit reached for now');
   if (res.status === 400 || res.status === 401 || res.status === 403) {
     const body = await res.text().catch(() => '');
-    if (/API_KEY|api key|PERMISSION_DENIED|UNAUTHENTICATED/i.test(body) || res.status !== 400) throw new AIError('BAD_KEY', 'Gemini key is invalid or blocked');
-    throw new AIError('BAD_RESPONSE', `Gemini rejected the request (${res.status})`);
+    if (/API_KEY|api key|api_key|PERMISSION_DENIED|UNAUTHENTICATED|invalid_api_key|authentication/i.test(body) || res.status !== 400) throw new AIError('BAD_KEY', 'AI key is invalid or blocked');
+    throw new AIError('BAD_RESPONSE', `AI rejected the request (${res.status})`);
   }
-  if (!res.ok) throw new AIError('NETWORK', `Gemini error ${res.status}`);
-  const json = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  const text = json.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-  try { return JSON.parse(text); } catch { throw new AIError('BAD_RESPONSE', 'Gemini returned unreadable data'); }
+  if (!res.ok) throw new AIError('NETWORK', `AI error ${res.status}`);
+  const json = await res.json() as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];            // Google
+    content?: { type: string; text?: string }[];                           // Anthropic
+    choices?: { message?: { content?: string } }[];                        // OpenAI-style
+  };
+  let text = provider === 'google' ? json.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || ''
+    : provider === 'anthropic' ? (json.content || []).map(c => c.text || '').join('')
+    : json.choices?.[0]?.message?.content || '';
+  text = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  const m = text.match(/\{[\s\S]*\}/);
+  try { return JSON.parse(m ? m[0] : text); } catch { throw new AIError('BAD_RESPONSE', 'AI returned unreadable data'); }
 }
 
 const fallbackNote = (e: unknown) => {
   const k = e instanceof AIError ? e.kind : 'NETWORK';
   return ({
-    NO_KEY: 'AI is off (no Gemini key) — used the offline reader.',
+    NO_KEY: 'AI is off (no AI key) — used the offline reader.',
     RATE_LIMIT: 'Free AI limit reached — used the offline reader. AI will work again later.',
-    BAD_KEY: 'Gemini key is not valid — used the offline reader. The owner can fix it in Settings → AI.',
+    BAD_KEY: 'AI key is not valid — used the offline reader. The owner can fix it in Settings → AI.',
     TIMEOUT: 'AI took too long — used the offline reader.',
     NETWORK: 'No internet for AI — used the offline reader.',
     BAD_RESPONSE: 'AI answer was unclear — used the offline reader.',
@@ -204,7 +245,7 @@ export async function dailyInsights(db: DB, stats: DailyStats, lang = 'en', deps
 export async function testKey(db: DB, deps: AIDeps = {}): Promise<{ ok: boolean; message: string }> {
   try {
     await gemini(db, [{ text: 'Reply with {"ok":true}' }], { type: 'OBJECT', properties: { ok: { type: 'BOOLEAN' } } }, deps);
-    return { ok: true, message: 'Gemini key works' };
+    return { ok: true, message: `AI key works (${PROVIDER_NAME[providerOf(getKey(db) || '')]})` };
   } catch (e) {
     return { ok: false, message: fallbackNote(e)?.split(' — ')[0] || (e as Error).message };
   }

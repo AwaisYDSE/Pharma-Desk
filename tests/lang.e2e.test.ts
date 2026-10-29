@@ -35,7 +35,7 @@ async function untranslated(page: Page): Promise<string[]> {
     return [...out];
   });
   // Remove names (medicines, companies, shop, owner) from each text; whatever English is left is a miss.
-  const names = [...DATA, 'Al-Shifa Pharmacy', 'My Pharmacy', 'Awais Amin', 'PharmaDesk'].sort((a, b) => b.length - a.length);
+  const names = [...DATA, 'Al-Shifa Pharmacy', 'My Pharmacy', 'Awais Amin', 'PharmaDesk', 'Google', 'OpenAI', 'Anthropic', 'Groq', 'API'].sort((a, b) => b.length - a.length);
   return found.filter(s => {
     if (DATA.has(s) || KEEP.test(s)) return false;
     let rest = s;

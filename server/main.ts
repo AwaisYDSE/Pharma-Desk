@@ -8,6 +8,7 @@ import { openWithRecovery, snapshot } from './db.ts';
 import { ensureIdentity, getIdentity } from './identity.ts';
 import { createApp } from './app.ts';
 import { serverStarted, serverHeartbeat, serverStopped, openSessionTable, logEvent } from './supervision.ts';
+import { startVendorLink } from './vendor-link.ts';
 import { lanUrls, startTailscale, CloudflareTunnel, publishBeacon, pairingPayload, pairingQr, type Endpoints } from './tunnel.ts';
 
 const PORT = Number(process.env.PORT || 4317);
@@ -67,6 +68,7 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     cf.start();
     process.on('exit', () => cf.stop());
   }
+  startVendorLink(db, { endpoints: () => endpoints, log });
   const qr = await pairingQr(pairingPayload(id.serverId, getIdentity(db)!.name, endpoints));
   console.log(qr.terminal);
   log(`Server PIN: ${getIdentity(db)!.pin}   (scan the QR above, then type this PIN)`);

@@ -93,7 +93,7 @@ export function About() {
         ))}
       </div>
       <p className="small faint" style={{ textAlign: 'center' }}>Buy, renew or get support by email. Free support for 1 month from purchase, then charges apply.<br /><a href="mailto:awaisdpw.co@gmail.com" style={{ color: '#5EEAD4' }} data-no-tr="">awaisdpw.co@gmail.com</a></p>
-      <p className="small faint" style={{ textAlign: 'center' }}>© {new Date().getFullYear()} Awais Amin · github.com/AwaisYDSE/Pharma-Desk · Commercial licence, all rights reserved</p>
+      <p className="small faint" style={{ textAlign: 'center' }}>© {new Date().getFullYear()} Awais Amin · Commercial licence, all rights reserved</p>
     </>
   );
 }

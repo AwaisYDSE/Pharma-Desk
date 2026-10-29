@@ -118,3 +118,34 @@ describe('Granular permissions — each switch is enforced', () => {
     expect(op([{ tbl: 'users', row: { ...u, perms: ['users'], hlc: '9' } }]).code).toBe('FORBIDDEN');
   });
 });
+
+describe('Changing the price at the counter', () => {
+  it('allowed users change it; others need a supervisor; every change is logged', async () => {
+    const S = await startShop(); shops.push(S);
+    const { saveUser } = await import('../server/supervision.ts');
+    saveUser(S.db, S.owner, { username: 'sana', name: 'Sana', role: 'cashier', perms: ['pos'], pin: '222222' });
+    const { seedMedicine } = await import('./helpers.ts');
+    const { med } = seedMedicine(S.db, 'Panadol', 'Paracetamol', 270, [{ batchNo: '1', qty: 50, expiresInDays: 300 }]);
+    const { setPrice } = await import('../client/core/pos.ts');
+
+    // Cashier without the price switch → needs a supervisor PIN
+    const d = await newDevice(S); await login(d.ctx, 'sana', '222222', d.client);
+    const m = (await d.ctx.db.medicines.get(med.id))!;
+    let cart = newCart(); await addToCart(d.ctx, cart, m, 2);
+    setPrice(cart, cart.lines[0].key, 25000);
+    await expect(checkout(d.ctx, cart, { method: 'cash', paid: 100000 }, d.client)).rejects.toMatchObject({ code: 'OVERRIDE_REQUIRED' });
+    const ok = await checkout(d.ctx, cart, { method: 'cash', paid: 100000 }, d.client, { supervisorId: S.owner.id });
+    expect(ok.invoice.total).toBe(50000);
+
+    // Owner (has every switch) changes it directly
+    const o = await newDevice(S); await login(o.ctx, 'owner', '111111', o.client);
+    cart = newCart(); await addToCart(o.ctx, cart, (await o.ctx.db.medicines.get(med.id))!, 1);
+    setPrice(cart, cart.lines[0].key, 30000);
+    const r = await checkout(o.ctx, cart, { method: 'cash', paid: 30000 }, o.client);
+    expect(r.invoice.total).toBe(30000);
+    expect(() => setPrice(cart, cart.lines[0].key, -5)).toThrow(/valid price/);
+
+    const audit = allRows<{ id: string; action: string }>(S.db, 'audit' as never).filter(a => a.action === 'pos.price_change');
+    expect(audit.length).toBe(2);
+  });
+});

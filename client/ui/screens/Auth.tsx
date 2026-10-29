@@ -5,7 +5,7 @@ import { useStore } from '../store.tsx';
 import { Icon, FloatingPills, useAsync, PhotoPicker } from '../components.tsx';
 import { Heart } from './About.tsx';
 import { LANGS } from '../i18n.ts';
-import { pair } from '../../core/sync.ts';
+import { pair, NeedsLocalOpen } from '../../core/sync.ts';
 import { login } from '../../core/auth.ts';
 import { PIN_MISMATCH_MESSAGE } from '../../../shared/util.ts';
 
@@ -102,7 +102,9 @@ export function OwnerSetup({ onDone, standalone, onBack }: { onDone: () => void;
 
 function decodeCode(text: string) {
   try {
-    const raw = text.trim().replace(/^pharmadesk:/, '').replace(/-/g, '+').replace(/_/g, '/');
+    const m = text.match(/[#&?]pair=([^&\s]+)/);
+    const code = m ? decodeURIComponent(m[1]) : text;
+    const raw = code.trim().replace(/^pharmadesk:/, '').replace(/-/g, '+').replace(/_/g, '/');
     const p = JSON.parse(decodeURIComponent(escape(atob(raw + '==='.slice((raw.length + 3) % 4)))));
     return p.app === 'pharmadesk' && p.sid ? p as { sid: string; name: string; urls: string[] } : null;
   } catch { return null; }
@@ -158,6 +160,12 @@ export function PairScreen({ onPaired }: { onPaired: () => void }) {
     try {
       await pair(ctx, qr, pin.trim(), name, navigator.platform);
     } catch (e) {
+      if (e instanceof NeedsLocalOpen) {
+        // This secure page can't talk to the shop PC's Wi-Fi address — open PharmaDesk from the shop PC itself.
+        const c = (code.match(/[#&?]pair=([^&\s]+)/)?.[1]) || encodeURIComponent(code.trim());
+        window.location.href = `${e.url.replace(/\/$/, '')}/#pair=${c}`;
+        return;
+      }
       throw new Error((e as { code?: string }).code === 'PIN_MISMATCH' ? PIN_MISMATCH_MESSAGE : (e as Error).message);
     }
     sync.start(5000);

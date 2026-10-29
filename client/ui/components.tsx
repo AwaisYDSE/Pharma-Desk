@@ -206,3 +206,26 @@ export function PhotoPicker({ value, onChange, label, shape = 'circle', max = 25
     </div>
   );
 }
+
+/** In-app confirm dialog (replaces the browser's confirm()/alert()). Promise resolves true/false. */
+type ConfirmOpts = { title?: string; message: string; confirmText?: string; cancelText?: string; danger?: boolean };
+type ConfirmReq = ConfirmOpts & { resolve: (v: boolean) => void };
+let confirmSub: ((o: ConfirmReq | null) => void) | null = null;
+export function confirmAsk(o: ConfirmOpts): Promise<boolean> {
+  return new Promise(resolve => { if (confirmSub) confirmSub({ ...o, resolve }); else resolve(true); });
+}
+export function ConfirmHost() {
+  const [cur, setCur] = useState<ConfirmReq | null>(null);
+  useEffect(() => { confirmSub = o => setCur(prev => { if (prev && prev !== o) prev.resolve(false); return o; }); return () => { confirmSub = null; }; }, []);
+  if (!cur) return null;
+  const done = (v: boolean) => { cur.resolve(v); setCur(null); };
+  return (
+    <Modal title={cur.title || 'Please confirm'} onClose={() => done(false)}>
+      <p style={{ margin: '2px 0 18px', color: 'var(--muted, #94A3B8)', lineHeight: 1.65, whiteSpace: 'pre-line' }}>{cur.message}</p>
+      <div className="row" style={{ justifyContent: 'flex-end', gap: 10 }}>
+        <button type="button" className="btn" onClick={() => done(false)}>{cur.cancelText || 'Cancel'}</button>
+        <button type="button" className={`btn ${cur.danger ? 'danger' : 'primary'}`} autoFocus onClick={() => done(true)}>{cur.confirmText || 'Yes'}</button>
+      </div>
+    </Modal>
+  );
+}

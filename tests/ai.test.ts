@@ -77,6 +77,37 @@ describe('Gemini AI service', () => {
     const db = openDb(':memory:'); ensureIdentity(db);
     const r = await ai.parsePrescription(db, { text: 'Syp Calpol 120ml TDS' });
     expect(r.source).toBe('offline');
-    expect(r.note).toMatch(/no Gemini key/);
+    expect(r.note).toMatch(/no AI key/);
   });
 });
+
+describe('Any AI provider works with the key it is given', () => {
+  const items = { items: [{ name: 'Augmentin', strength: '625mg', qty: 10 }] };
+  const cases: [string, string, (b: unknown) => unknown, RegExp][] = [
+    ['OpenAI', 'sk-test-openai', () => ({ choices: [{ message: { content: JSON.stringify(items) } }] }), /api\.openai\.com/],
+    ['Groq (free)', 'gsk_test', () => ({ choices: [{ message: { content: '```json\n' + JSON.stringify(items) + '\n```' } }] }), /api\.groq\.com/],
+    ['Anthropic', 'sk-ant-test', () => ({ content: [{ type: 'text', text: JSON.stringify(items) }] }), /api\.anthropic\.com/],
+    ['OpenRouter', 'sk-or-test', () => ({ choices: [{ message: { content: JSON.stringify(items) } }] }), /openrouter\.ai/],
+  ];
+  for (const [name, key, body, host] of cases) {
+    it(`${name}: recognised from the key, prescription read, patient details removed`, async () => {
+      const db = openDb(':memory:'); ensureIdentity(db); ai.setGeminiKey(db, key);
+      let url = '', sent = '';
+      const f = (async (u: string, init: RequestInit) => { url = u; sent = String(init.body); return new Response(JSON.stringify(body(null)), { status: 200 }); }) as unknown as typeof fetch;
+      const r = await ai.parsePrescription(db, { text: RX }, { fetch: f });
+      expect(url).toMatch(host);
+      expect(r.source).toBe('ai');
+      expect(r.items[0].name).toBe('Augmentin');
+      expect(sent).not.toContain('Ali Khan');
+      expect(ai.keyProvider(db)).toBeTruthy();
+    });
+  }
+  it('a wrong key for any provider falls back to the offline reader', async () => {
+    const db = openDb(':memory:'); ensureIdentity(db); ai.setGeminiKey(db, 'sk-bad');
+    const r = await ai.parsePrescription(db, { text: RX }, { fetch: respond(401, { error: { code: 'invalid_api_key' } }) });
+    expect(r.source).toBe('offline');
+    expect(r.items.length).toBeGreaterThan(0);
+    expect(r.note).toMatch(/AI key is not valid/);
+  });
+});
+

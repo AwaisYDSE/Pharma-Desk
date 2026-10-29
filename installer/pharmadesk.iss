@@ -60,6 +60,7 @@ Filename: "{cmd}"; Parameters: "/c ping 127.0.0.1 -n 6 >nul & del /f /q ""{srcex
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im pharmadesk-node.exe"; Flags: runhidden; RunOnceId: "StopServer"
+Filename: "{sys}\taskkill.exe"; Parameters: "/f /im cloudflared.exe"; Flags: runhidden; RunOnceId: "StopTunnel"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""PharmaDesk"""; Flags: runhidden; RunOnceId: "Firewall"
 
 [Code]
@@ -68,6 +69,7 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var Code: Integer;
 begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /im pharmadesk-node.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /im cloudflared.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
   Result := '';
 end;
 

@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { dateLocale } from '../phrases.ts';
 import { AnimatePresence } from 'framer-motion';
 import { useStore, useLive } from '../store.tsx';
-import { Icon, Modal, Empty, Toggle, SupervisorPrompt, useAsync, PhotoPicker } from '../components.tsx';
+import { Icon, Modal, Empty, Toggle, SupervisorPrompt, useAsync, PhotoPicker, confirmAsk } from '../components.tsx';
 import { money } from '../i18n.ts';
 import { can } from '../../../shared/permissions.ts';
 import { toPaisa, pctToBp } from '../../../shared/money.ts';
@@ -100,20 +100,27 @@ export function MedicineForm({ med, onClose, onSaved }: { med: Partial<Medicine>
   return (
     <Modal title={med.id ? t('edit') : t('newMedicine')} onClose={onClose} wide>
       <form className="col" onSubmit={e => { e.preventDefault(); void a.run(); }}>
-        <div className="grid g-2" style={{ gap: 10 }}>
-          {fld('name', t('name'), { required: true, autoFocus: true, maxLength: 80 })}{fld('generic', 'Formula (generic)', { required: true, maxLength: 120 })}
-          {fld('strength', t('strength'), { placeholder: '500mg', maxLength: 30 })}{fld('form', 'Form', { placeholder: 'Tablet / Syrup', maxLength: 30 })}
-          {fld('manufacturer', t('company'), { maxLength: 60 })}{fld('barcode', t('barcode'), { inputMode: 'numeric', maxLength: 40 })}
-          <label className="field">{t('salePrice')} (Rs)<input className="input num" inputMode="decimal" required value={f.price} onChange={e => setF({ ...f, price: e.target.value.replace(/[^\d.]/g, '') })} /></label>
-          <label className="field">{t('gst')} %<input className="input num" inputMode="decimal" value={f.gst} onChange={e => setF({ ...f, gst: e.target.value.replace(/[^\d.]/g, '') })} /></label>
-          {fld('reorderLevel', t('reorderLevel'), { inputMode: 'numeric' })}{fld('rackNo', 'Rack / shelf', { maxLength: 20 })}
-          {fld('category', 'Category', { placeholder: 'Antibiotic, Pain & fever…', maxLength: 40 })}
-        </div>
-        <PhotoPicker label="Photo of the pack (optional — take it with the phone camera)" shape="square" max={320} value={(f as { photo?: string | null }).photo} onChange={v => setF({ ...f, photo: v })} />
-        <label className="field">Description — what it is used for<textarea className="input" style={{ minHeight: 80 }} maxLength={400} value={String(f.description ?? '')} onChange={e => setF({ ...f, description: e.target.value })} placeholder="e.g. Fever and mild pain" /></label>
+        <div className="form-section"><h3>Medicine</h3>
+          <div className="form-grid two">
+            {fld('name', t('name'), { required: true, autoFocus: true, maxLength: 80, placeholder: 'Panadol' })}{fld('generic', 'Formula (generic)', { required: true, maxLength: 120, placeholder: 'Paracetamol' })}
+            {fld('strength', t('strength'), { placeholder: '500mg', maxLength: 30 })}{fld('form', 'Form', { placeholder: 'Tablet / Syrup', maxLength: 30 })}
+            {fld('manufacturer', t('company'), { maxLength: 60 })}{fld('category', 'Category', { placeholder: 'Antibiotic, Pain & fever…', maxLength: 40 })}
+          </div></div>
+        <div className="form-section"><h3>Price & stock</h3>
+          <div className="form-grid">
+            <label className="field">{t('salePrice')} (Rs)<input className="input num" inputMode="decimal" required placeholder="0.00" value={f.price} onChange={e => setF({ ...f, price: e.target.value.replace(/[^\d.]/g, '') })} /></label>
+            <label className="field">{t('gst')} %<input className="input num" inputMode="decimal" value={f.gst} onChange={e => setF({ ...f, gst: e.target.value.replace(/[^\d.]/g, '') })} /></label>
+            {fld('reorderLevel', t('reorderLevel'), { inputMode: 'numeric' })}{fld('rackNo', 'Rack / shelf', { maxLength: 20 })}
+            {fld('barcode', t('barcode'), { inputMode: 'numeric', maxLength: 40 })}
+          </div></div>
+        <div className="form-section"><h3>More</h3>
+          <div className="form-grid two" style={{ alignItems: 'start' }}>
+            <PhotoPicker label="Photo of the pack (optional — take it with the phone camera)" shape="square" max={320} value={(f as { photo?: string | null }).photo} onChange={v => setF({ ...f, photo: v })} />
+            <label className="field">Description — what it is used for<textarea className="input" style={{ minHeight: 110 }} maxLength={400} value={String(f.description ?? '')} onChange={e => setF({ ...f, description: e.target.value })} placeholder="e.g. Fever and mild pain" /></label>
+          </div></div>
         <label className="row"><Toggle on={!!f.rxRequired} onChange={v => setF({ ...f, rxRequired: v })} label="Prescription required" /> Prescription required</label>
         {a.err && <span className="err" role="alert">{a.err}</span>}
-        <div className="row"><span className="spacer" /><button type="button" className="btn" onClick={onClose}>{t('cancel')}</button><button className="btn primary" disabled={a.busy}>{t('save')}</button></div>
+        <div className="form-actions"><span className="spacer" /><button type="button" className="btn" onClick={onClose}>{t('cancel')}</button><button className="btn primary" disabled={a.busy}>{t('save')}</button></div>
       </form>
     </Modal>
   );
@@ -180,7 +187,7 @@ function MedicineDetail({ med, onEdit, onClose }: { med: Medicine; onEdit: () =>
           <Tabs value={tab} onChange={setTab} tabs={[['stock', `Stock (${batches.filter(x => x.qty !== 0).length})`], ['purchases', `Purchases (${hist.purchases.length})`], ['sales', `Sales (${hist.sales.length})`]]} />
           <span className="spacer" />
           {can(user, 'inventory.edit') && <button type="button" className="btn sm" onClick={onEdit}>{t('edit')}</button>}
-          {can(user, 'inventory.delete') && <button type="button" className="btn sm danger" onClick={async () => { if (confirm(`Delete ${med.name}? Its past sales and purchases stay in history.${med.source === 'catalog' ? ' Built-in medicines cannot be re-imported later.' : ''}`)) { try { await deleteMedicine(ctx, med); toast('ok', `${med.name} deleted`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}><Icon name="trash" size={14} /> {t('delete')}</button>}
+          {can(user, 'inventory.delete') && <button type="button" className="btn sm danger" onClick={async () => { if (await confirmAsk({ message: `Delete ${med.name}? Its past sales and purchases stay in history.${med.source === 'catalog' ? ' Built-in medicines cannot be re-imported later.' : ''}`, danger: true, confirmText: t('delete') })) { try { await deleteMedicine(ctx, med); toast('ok', `${med.name} deleted`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}><Icon name="trash" size={14} /> {t('delete')}</button>}
         </div>
         {tab === 'stock' && <>
           <div className="row"><span className="spacer" />{can(user, 'inventory.add_stock') && <button type="button" className="btn sm" onClick={() => setAdd(v => !v)}><Icon name="plus" size={16} /> Opening stock</button>}</div>
@@ -209,7 +216,7 @@ function MedicineDetail({ med, onEdit, onClose }: { med: Medicine; onEdit: () =>
           <div className="table-wrap"><table className="t"><thead><tr><th>Purchase</th><th>Date</th><th>{t('suppliers')}</th><th>{t('qty')}</th>{can(user, 'reports.profit') && <th>{t('costPrice')}</th>}<th>Status</th></tr></thead><tbody>
             {hist.purchases.map(p => <tr key={p.id}><td><Link onClick={() => { onClose(); navigate('purchases', { open: 'purchase', id: p.purchaseId }); }}>{p.po!.number}</Link></td><td className="num">{p.po!.date}</td>
               <td>{p.supplier ? <Link onClick={() => { onClose(); navigate('suppliers', { open: 'supplier', id: p.supplier!.id }); }}>{p.supplier.name}</Link> : '—'}</td>
-              <td className="num">{p.qty}{p.freeQty ? ` + ${p.freeQty} free` : ''}</td>{can(user, 'reports.profit') && <td className="num">{money(p.costPrice, lang)}</td>}
+              <td className="num">{p.qty}</td>{can(user, 'reports.profit') && <td className="num">{money(p.costPrice, lang)}</td>}
               <td><span className={`badge ${p.po!.status === 'received' ? 'ok' : 'warn'}`}>{p.po!.status}</span></td></tr>)}
           </tbody></table></div>)}
         {tab === 'sales' && (hist.sales.length === 0 ? <Empty icon="cart" text="Not sold yet" /> :
@@ -277,9 +284,8 @@ export function Purchases() {
     const items = used.map((l, n) => {
       const m = meds.find(x => x.id === l.medicineId);
       if (!m) throw new Error(`Line ${n + 1}: choose an item from Inventory`);
-      const qty = Number(l.qty), free = Number(l.free || 0);
+      const qty = Number(l.qty), free = 0;
       if (!Number.isInteger(qty) || qty <= 0) throw new Error(`${m.name}: quantity must be a whole number above 0`);
-      if (!Number.isInteger(free) || free < 0) throw new Error(`${m.name}: free units must be 0 or more`);
       if (!l.batchNo.trim()) throw new Error(`${m.name}: batch number is required`);
       if (!l.expiryDate || l.expiryDate <= today) throw new Error(`${m.name}: expiry date must be in the future`);
       if (!(Number(l.cost) >= 0)) throw new Error(`${m.name}: enter a valid cost price`);
@@ -308,24 +314,29 @@ export function Purchases() {
       {form && <Modal title={form.id ? 'Modify purchase' : 'New purchase'} onClose={() => setForm(null)} wide>
         <form className="col" onSubmit={e => { e.preventDefault(); void save.run(); }}>
           <div className="row" style={{ alignItems: 'flex-end' }}>
-            <label className="field" style={{ flex: 1 }}>{t('suppliers')}<select className="input" value={form.supplierId} onChange={e => setForm({ ...form, supplierId: e.target.value })}><option value="">Choose supplier…</option>{sups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+            <label className="field" style={{ flex: 1 }}>Supplier<select className="input" value={form.supplierId} onChange={e => setForm({ ...form, supplierId: e.target.value })}><option value="">Choose supplier…</option>{sups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
             {can(user, 'suppliers.create') && <button type="button" className="btn" onClick={() => setNewSup(true)}><Icon name="plus" size={16} /> New supplier</button>}
           </div>
           <span className="small muted">Only items that exist in Inventory can be purchased. Received stock goes straight into Inventory and is sold first-expiry-first in Point of Sale.</span>
-          <div className="table-wrap" style={{ overflow: 'visible' }}><table className="t"><thead><tr><th>Item</th><th>{t('qty')}</th><th>Free</th><th>{t('costPrice')}</th><th>{t('salePrice')}</th><th>{t('batch')}</th><th>{t('expiry')}</th><th /></tr></thead><tbody>
+          <div className="col" style={{ gap: 12 }}>
             {form.lines.map((l, i) => { const up = (p: Partial<Line>) => { const c = [...form.lines]; c[i] = { ...l, ...p }; if (i === c.length - 1 && p.medicineId) c.push(blank()); setForm({ ...form, lines: c }); }; return (
-              <tr key={i}><td><ItemPicker meds={meds} value={l.medicineId} onPick={id => { const m = meds.find(x => x.id === id); up({ medicineId: id, sale: l.sale || (m?.salePrice ? String(m.salePrice / 100) : '') }); }} onCreate={name => setNewMed({ name, line: i })} /></td>
-                <td><input className="input num" style={{ width: 70 }} inputMode="numeric" value={l.qty} onChange={e => up({ qty: e.target.value.replace(/\D/g, '') })} /></td>
-                <td><input className="input num" style={{ width: 60 }} inputMode="numeric" value={l.free} onChange={e => up({ free: e.target.value.replace(/\D/g, '') })} /></td>
-                <td><input className="input num" style={{ width: 90 }} inputMode="decimal" value={l.cost} onChange={e => up({ cost: e.target.value.replace(/[^\d.]/g, '') })} /></td>
-                <td><input className="input num" style={{ width: 90 }} inputMode="decimal" value={l.sale} onChange={e => up({ sale: e.target.value.replace(/[^\d.]/g, '') })} /></td>
-                <td><input className="input" style={{ width: 100 }} maxLength={30} value={l.batchNo} onChange={e => up({ batchNo: e.target.value })} /></td>
-                <td><input className="input" type="date" min={addDays(isoDate(), 1)} value={l.expiryDate} onChange={e => up({ expiryDate: e.target.value })} /></td>
-                <td>{form.lines.length > 1 && <button type="button" className="btn icon ghost sm" aria-label="Remove line" onClick={() => setForm({ ...form, lines: form.lines.filter((_, k) => k !== i) })}><Icon name="x" size={14} /></button>}</td></tr>); })}
-          </tbody></table></div>
-          <div className="row"><strong>Total: <span className="num">{money(form.lines.reduce((s, l) => s + rs(l.cost) * (Number(l.qty) || 0), 0), lang)}</span></strong></div>
+              <div key={i} className="line-card">
+                <div className="line-head">
+                  <span className="line-no num">{i + 1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}><ItemPicker meds={meds} value={l.medicineId} onPick={id => { const m = meds.find(x => x.id === id); up({ medicineId: id, sale: l.sale || (m?.salePrice ? String(m.salePrice / 100) : '') }); }} onCreate={name => setNewMed({ name, line: i })} /></div>
+                  {form.lines.length > 1 && <button type="button" className="btn icon ghost sm" aria-label="Remove line" onClick={() => setForm({ ...form, lines: form.lines.filter((_, k) => k !== i) })}><Icon name="trash" size={16} /></button>}
+                </div>
+                <div className="form-grid">
+                  <label className="field">{t('qty')}<input className="input num" inputMode="numeric" placeholder="0" value={l.qty} onChange={e => up({ qty: e.target.value.replace(/\D/g, '') })} /></label>
+                  <label className="field">{t('costPrice')} (Rs)<input className="input num" inputMode="decimal" placeholder="0.00" value={l.cost} onChange={e => up({ cost: e.target.value.replace(/[^\d.]/g, '') })} /></label>
+                  <label className="field">{t('salePrice')} (Rs)<input className="input num" inputMode="decimal" placeholder="0.00" value={l.sale} onChange={e => up({ sale: e.target.value.replace(/[^\d.]/g, '') })} /></label>
+                  <label className="field">{t('batch')}<input className="input" maxLength={30} placeholder="B-123" value={l.batchNo} onChange={e => up({ batchNo: e.target.value })} /></label>
+                  <label className="field">{t('expiry')}<input className="input" type="date" min={addDays(isoDate(), 1)} value={l.expiryDate} onChange={e => up({ expiryDate: e.target.value })} /></label>
+                </div>
+              </div>); })}
+          </div>
           {save.err && <span className="err" role="alert">{save.err}</span>}
-          <div className="row"><span className="spacer" /><button type="button" className="btn" onClick={() => setForm(null)}>{t('cancel')}</button><button className="btn primary" disabled={save.busy}>{t('save')}</button></div>
+          <div className="form-actions"><strong className="big">{t('total')}: <span className="num">{money(form.lines.reduce((s, l) => s + rs(l.cost) * (Number(l.qty) || 0), 0), lang)}</span></strong><span className="spacer" /><button type="button" className="btn" onClick={() => setForm(null)}>{t('cancel')}</button><button className="btn primary" disabled={save.busy}>{t('save')}</button></div>
         </form></Modal>}
 
       {newMed && <MedicineForm med={{ name: newMed.name, generic: '', salePrice: 0, reorderLevel: 10 }} onClose={() => setNewMed(null)} onSaved={m => {
@@ -353,13 +364,13 @@ function PurchaseDetail({ p, sups, meds, onEdit, onClose }: { p: Purchase; sups:
         <div className="row"><span className={`badge ${received ? 'ok' : 'warn'}`}>{received ? 'Received — in stock' : 'Waiting for stock'}</span>
           <span className="muted">{p.date}</span>{s && <Link onClick={() => { onClose(); navigate('suppliers', { open: 'supplier', id: s.id }); }}><Icon name="factory" size={14} /> {s.name}</Link>}<span className="spacer" />
           {!received && can(user, 'purchases.edit') && <button type="button" className="btn sm" onClick={onEdit}>{t('edit')}</button>}
-          {!received && can(user, 'purchases.delete') && <button type="button" className="btn sm danger" onClick={async () => { if (confirm(`Cancel purchase ${p.number}?`)) { try { await cancelPurchase(ctx, p.id); toast('ok', `${p.number} cancelled`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}>Cancel purchase</button>}
+          {!received && can(user, 'purchases.delete') && <button type="button" className="btn sm danger" onClick={async () => { if (await confirmAsk({ message: `Cancel purchase ${p.number}?`, danger: true, confirmText: 'Cancel purchase' })) { try { await cancelPurchase(ctx, p.id); toast('ok', `${p.number} cancelled`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}>Cancel purchase</button>}
           {!received && can(user, 'purchases.receive') && <button type="button" className="btn sm primary" onClick={async () => { try { await receivePurchase(ctx, p.id); toast('ok', t('stockAdded'), 'Now in Inventory and ready to sell in Point of Sale.'); } catch (e) { toast('bad', (e as Error).message); } }}>{t('receive')}</button>}
         </div>
         <div className="table-wrap"><table className="t"><thead><tr><th>Item</th><th>{t('batch')}</th><th>{t('expiry')}</th><th>{t('qty')}</th><th>{t('costPrice')}</th><th>{t('amount')}</th></tr></thead><tbody>
           {items.map(i => { const m = meds.find(x => x.id === i.medicineId); return (
             <tr key={i.id}><td>{m ? <div className="row" style={{ flexWrap: 'nowrap', gap: 8 }}><MedThumb med={m} size={30} /><Link onClick={() => { onClose(); navigate('inventory', { open: 'medicine', id: m.id }); }}>{m.name} {m.strength}</Link></div> : 'Deleted item'}</td>
-              <td className="num">{i.batchNo}</td><td className="num">{i.expiryDate}</td><td className="num">{i.qty}{i.freeQty ? ` + ${i.freeQty}` : ''}</td><td className="num">{money(i.costPrice, lang)}</td><td className="num">{money(i.costPrice * i.qty, lang)}</td></tr>); })}
+              <td className="num">{i.batchNo}</td><td className="num">{i.expiryDate}</td><td className="num">{i.qty}</td><td className="num">{money(i.costPrice, lang)}</td><td className="num">{money(i.costPrice * i.qty, lang)}</td></tr>); })}
         </tbody></table></div>
         <div className="row"><span className="spacer" /><strong>{t('total')}: <span className="num">{money(p.total, lang)}</span></strong></div>
       </div>
@@ -368,7 +379,7 @@ function PurchaseDetail({ p, sups, meds, onEdit, onClose }: { p: Purchase; sups:
 }
 
 /* ======================= SUPPLIERS & CUSTOMERS ======================= */
-const FIELDS = { suppliers: ['name', 'phone', 'email', 'address', 'ntn'], patients: ['name', 'phone', 'cnic', 'age', 'doctorName', 'allergies', 'history'] };
+const FIELDS = { suppliers: ['name', 'phone', 'email', 'ntn', 'address'], patients: ['name', 'phone', 'cnic', 'age', 'doctorName', 'allergies', 'history'] };
 const LABEL: Record<string, string> = { doctorName: 'Doctor', cnic: 'CNIC', ntn: 'NTN', email: 'Email', address: 'Address', age: 'Age', allergies: 'Allergies', history: 'Medical history' };
 
 function PartyForm({ kind, initial, onClose, onSaved }: { kind: 'suppliers' | 'patients'; initial: Record<string, unknown>; onClose: () => void; onSaved: (r: Supplier | Patient) => void }) {
@@ -387,9 +398,14 @@ function PartyForm({ kind, initial, onClose, onSaved }: { kind: 'suppliers' | 'p
   return (
     <Modal title={kind === 'suppliers' ? (f.id ? 'Edit supplier' : 'Add supplier') : (f.id ? 'Edit customer' : 'Add customer')} onClose={onClose}>
       <form className="col" onSubmit={e => { e.preventDefault(); void a.run(); }}>
-        {FIELDS[kind].map(k => <label key={k} className="field">{LABEL[k] || t(k)}
-          <input className="input" required={k === 'name'} autoFocus={k === 'name'} maxLength={k === 'history' ? 300 : 80} inputMode={k === 'phone' || k === 'age' ? 'tel' : undefined} value={String(f[k] ?? '')} onChange={e => setF({ ...f, [k]: e.target.value })} /></label>)}
-        {a.err && <span className="err" role="alert">{a.err}</span>}<button className="btn primary" disabled={a.busy}>{t('save')}</button>
+        <div className="form-grid two">
+          {FIELDS[kind].map(k => <label key={k} className="field" style={k === 'address' || k === 'history' ? { gridColumn: '1 / -1' } : undefined}>{LABEL[k] || t(k)}
+            {k === 'address' || k === 'history'
+              ? <textarea className="input" style={{ minHeight: 70 }} maxLength={300} value={String(f[k] ?? '')} onChange={e => setF({ ...f, [k]: e.target.value })} />
+              : <input className="input" required={k === 'name'} autoFocus={k === 'name'} maxLength={80} inputMode={k === 'phone' || k === 'age' ? 'tel' : undefined} value={String(f[k] ?? '')} onChange={e => setF({ ...f, [k]: e.target.value })} />}</label>)}
+        </div>
+        {a.err && <span className="err" role="alert">{a.err}</span>}
+        <div className="form-actions"><span className="spacer" /><button type="button" className="btn" onClick={onClose}>{t('cancel')}</button><button className="btn primary" disabled={a.busy}>{t('save')}</button></div>
       </form>
     </Modal>
   );
@@ -462,7 +478,7 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
           {kind === 'patients' && can(user, 'pos') && <button type="button" className="btn sm primary" onClick={() => { onClose(); navigate('pos', { sell: { patientId: party.id } }); }}><Icon name="cart" size={16} /> New bill</button>}
           {kind === 'suppliers' && can(user, 'purchases.create') && <button type="button" className="btn sm primary" onClick={() => { onClose(); navigate('purchases', { newPurchase: { supplierId: party.id } }); }}><Icon name="truck" size={16} /> New purchase</button>}
           {can(user, `${kind}.edit`) && <button type="button" className="btn sm" onClick={onEdit}>{t('edit')}</button>}
-          {can(user, `${kind}.delete`) && <button type="button" className="btn sm danger" onClick={async () => { if (bal !== 0 && !confirm(`${party.name} still has a balance of ${money(bal, lang as never)}. Delete anyway?`)) return; if (confirm(`Delete ${party.name}? Their bills and purchases stay in history.`)) { try { await saveRecord(ctx, kind, { ...party, deleted: true } as never); toast('ok', `${party.name} deleted`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}><Icon name="trash" size={14} /> {t('delete')}</button>}
+          {can(user, `${kind}.delete`) && <button type="button" className="btn sm danger" onClick={async () => { if (bal !== 0 && !(await confirmAsk({ message: `${party.name} still has a balance of ${money(bal, lang as never)}. Delete anyway?`, danger: true, confirmText: t('delete') }))) return; if (await confirmAsk({ message: `Delete ${party.name}? Their bills and purchases stay in history.`, danger: true, confirmText: t('delete') })) { try { await saveRecord(ctx, kind, { ...party, deleted: true } as never); toast('ok', `${party.name} deleted`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}><Icon name="trash" size={14} /> {t('delete')}</button>}
         </div>
         <div className="card row"><div className="col" style={{ gap: 0 }}><span className="small muted">{kind === 'suppliers' ? 'We owe this supplier' : 'Udhaar — customer owes'}</span><span className="big num">{money(bal, lang as never)}</span></div><span className="spacer" />
           {canPay && <form className="row" onSubmit={e => { e.preventDefault(); void pay.run(); }}><input className="input num" style={{ width: 130 }} inputMode="decimal" placeholder="Rs" value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} />

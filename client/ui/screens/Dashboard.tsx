@@ -92,7 +92,7 @@ export function Dashboard() {
         </section>
         <section className="card col" style={{ background: 'linear-gradient(160deg, var(--accentSoft), transparent)' }} aria-label={t('aiSummary')}>
           <div className="row"><span className="badge acc" style={{ padding: 8, borderRadius: 10 }}><Icon name="spark" /></span><h2 style={{ margin: 0 }}>{t('aiSummary')}</h2><span className="spacer" />
-            {ai && <span className="badge">{ai.source === 'ai' ? 'Gemini AI' : 'offline'}</span>}</div>
+            {ai && <span className="badge">{ai.source === 'ai' ? 'AI' : 'offline'}</span>}</div>
           {ai ? <p style={{ margin: 0, lineHeight: 1.8 }}>{ai.text}</p> : <><Skeleton /><Skeleton w="80%" /><Skeleton w="60%" /></>}
           {!settings && <span />}
         </section>

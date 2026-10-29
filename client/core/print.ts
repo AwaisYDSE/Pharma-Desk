@@ -52,7 +52,7 @@ export function receiptHtml(r: ReceiptData): string {
   ${s.logoDataUrl ? `<div class="c"><img src="${escapeHtml(s.logoDataUrl)}" style="max-height:48px"></div>` : ''}
   <h1>${escapeHtml(s.storeName)}</h1>
   <div class="c">${escapeHtml(s.address)}${s.phone ? `<br>Tel ${escapeHtml(s.phone)}` : ''}${s.drugLicense ? `<br>DL ${escapeHtml(s.drugLicense)}` : ''}${s.ntn ? ` · NTN ${escapeHtml(s.ntn)}` : ''}</div>
-  <hr><div>Bill: <b>${escapeHtml(inv.number)}</b><br>${new Date(inv.createdAt).toLocaleString('en-PK')}<br>Cashier: ${escapeHtml(r.cashier)}${r.patient ? `<br>Patient: ${escapeHtml(r.patient)}` : ''}</div><hr>
+  <hr><div>Bill: <b>${escapeHtml(inv.number)}</b><br>${new Date(inv.createdAt).toLocaleString('en-PK')}<br>Served by: ${escapeHtml(r.cashier)}${r.patient ? `<br>Patient: ${escapeHtml(r.patient)}` : ''}</div><hr>
   <table><tr><td><b>Item</b></td><td class="n"><b>Qty</b></td><td class="n"><b>Amount</b></td></tr>${rows}</table>
   <table class="t"><tr><td>Subtotal</td><td class="n">${fmt(inv.gross, c)}</td></tr>
   ${inv.discount ? `<tr><td>Discount</td><td class="n">- ${fmt(inv.discount, c)}</td></tr>` : ''}

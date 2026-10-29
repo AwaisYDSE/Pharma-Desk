@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { dateLocale } from '../phrases.ts';
 import { motion } from 'framer-motion';
 import { useStore, useLive } from '../store.tsx';
-import { Icon, Modal, Toggle, Empty, Skeleton, useAsync, UserAvatar, PhotoPicker } from '../components.tsx';
+import { Icon, Modal, Toggle, Empty, Skeleton, useAsync, UserAvatar, PhotoPicker, confirmAsk } from '../components.tsx';
 import { money } from '../i18n.ts';
 import { ROLE_PRESETS, PERMISSION_GROUPS, can } from '../../../shared/permissions.ts';
 import { saveUser, setPermission, deleteUser, setUserActive, forceLogout, resetPin, setUserPhoto } from '../../core/auth.ts';
@@ -14,6 +14,8 @@ interface Person { id: string; name: string; status: string; device: string | nu
 interface Run { started_at: string; stopped_at: string | null; clean: number | null }
 
 const ACTION_TEXT: Record<string, (d: Record<string, unknown>) => string> = {
+  'support.on': () => 'Turned developer support access ON',
+  'support.off': () => 'Turned developer support access OFF',
   'auth.login': d => d.offline ? `Logged in on ${d.device || 'a device'} (while server was off)` : `Logged in on ${d.device || 'a device'}`,
   'auth.logout': d => (d.device ? `Logged out on ${d.device}` : 'Logged out') + (d.reason && d.reason !== 'Logged out' ? ` — ${d.reason}` : ''),
   'auth.failed': d => `Wrong PIN on ${d.device || 'a device'}`, 'auth.login.failed': () => 'Wrong PIN',
@@ -26,7 +28,7 @@ const ACTION_TEXT: Record<string, (d: Record<string, unknown>) => string> = {
   'fefo.reallocated': d => String(d.message || 'Batch reallocated'), 'stock.conflict': d => String(d.message || 'Stock conflict'),
   'stock.adjust': d => `Stock adjusted ${Number(d.delta) > 0 ? '+' : ''}${d.delta} — ${d.reason}`, 'stock.opening': d => `Added stock ${d.qty} (batch ${d.batchNo})`,
   'purchase.receive': () => 'Received a purchase', 'device.paired': d => `New device paired: ${d.name}`, 'device.removed': () => 'A device was removed',
-  'settings.ai': () => 'Changed AI settings', 'settings.shop': () => 'Changed shop details', 'shop.setup': () => 'Set up the shop',
+  'settings.ai': () => 'Changed AI settings', 'pos.price_change': d => `Changed the price on bill ${d.bill}`, 'settings.shop': () => 'Changed shop details', 'shop.setup': () => 'Set up the shop',
   'user.owner_created': () => 'Created the owner account', 'user.photo': () => 'Changed a profile photo',
   'user.update': d => `Updated user ${d.username || d.user || ''}`, 'user.updated': d => `Updated user ${d.username || d.user || ''}`,
   'user.force_logout': d => `Logged out ${d.user || d.username || ''}`, 'auth.blocked': () => 'Blocked a device after wrong PINs',
@@ -107,7 +109,7 @@ export function Users() {
               {can(me, 'users.logout') && <button type="button" className="btn sm danger" onClick={() => act(() => forceLogout(ctx, selected.id).then(() => client.request('POST', `/api/users/${selected.id}/logout`).catch(() => {})), 'Logged out')}>{t('logoutNow')}</button>}
               {can(me, 'users.edit') && <button type="button" className="btn sm" onClick={() => act(() => setUserActive(ctx, selected.id, selected.active === false), selected.active === false ? t('enable') : t('disable'))}>{selected.active === false ? t('enable') : t('disable')}</button>}
               {can(me, 'users.edit') && <button type="button" className="btn sm" onClick={() => setPinFor(selected)}>{t('resetPin')}</button>}
-              {can(me, 'users.delete') && <button type="button" className="btn sm danger" onClick={() => confirm(t('confirmDelete')) && act(async () => { await deleteUser(ctx, selected.id); setSel(null); }, 'Deleted')}><Icon name="trash" size={14} /> {t('delete')}</button>}
+              {can(me, 'users.delete') && <button type="button" className="btn sm danger" onClick={async () => { if (await confirmAsk({ message: t('confirmDelete'), danger: true, confirmText: t('delete') })) act(async () => { await deleteUser(ctx, selected.id); setSel(null); }, 'Deleted'); }}><Icon name="trash" size={14} /> {t('delete')}</button>}
             </div>
             {can(me, 'users.edit') ? <>
               <label className="field">{t('role')} (quick preset — then switch anything on or off below)<select className="input" value={ROLE_PRESETS[selected.role] ? selected.role : 'custom'} onChange={e => e.target.value !== 'custom' && act(() => saveUser(ctx, { ...selected, role: e.target.value, perms: ROLE_PRESETS[e.target.value]?.perms || selected.perms }), t('save'))}>
@@ -139,7 +141,7 @@ export function Users() {
       {live?.devices && <section className="card"><h2>{t('devices')}</h2>
         {live.devices.map(d => <div key={d.id} className="row" style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}><Icon name={/phone|android|iphone/i.test(d.name) ? 'phone' : 'pc'} /><strong>{d.name}</strong>
           <span className="small muted">last seen {new Date(d.last_seen).toLocaleString(dateLocale())}</span><span className="spacer" />
-          {d.revoked ? <span className="badge bad">removed</span> : <button type="button" className="btn sm danger" onClick={() => confirm('Remove this device? It will need the Server PIN to connect again.') && act(() => client.request('POST', `/api/devices/${d.id}/revoke`), 'Device removed')}>Remove</button>}</div>)}
+          {d.revoked ? <span className="badge bad">removed</span> : <button type="button" className="btn sm danger" onClick={async () => { if (await confirmAsk({ message: 'Remove this device? It will need the Server PIN to connect again.', danger: true, confirmText: 'Remove' })) act(() => client.request('POST', `/api/devices/${d.id}/revoke`), 'Device removed'); }}>Remove</button>}</div>)}
       </section>}
 
       {adding && <AddUser onClose={() => setAdding(false)} />}

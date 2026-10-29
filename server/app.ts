@@ -18,6 +18,8 @@ import { pairingPayload, pairingQr, type Endpoints } from './tunnel.ts';
 import { can } from '../shared/permissions.ts';
 import { licensingOn } from '../shared/vendor.ts';
 import { licenseState, activateLicense, installId } from './license.ts';
+import { setSupportAccess, supportOn } from './vendor-link.ts';
+import { VENDOR } from '../shared/vendor.ts';
 import { AppError } from '../shared/util.ts';
 import type { Op, User, Medicine, Batch, Invoice, InvoiceItem } from '../shared/types.ts';
 import { isoDate, addDays, daysBetween } from '../shared/util.ts';
@@ -198,9 +200,12 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     if (typeof req.body?.key === 'string') ai.setGeminiKey(db, req.body.key || null);
     if (typeof req.body?.model === 'string') db.prepare(`INSERT INTO server_settings(key,value) VALUES ('gemini_model', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(req.body.model || ai.DEFAULT_MODEL);
     sup.logEvent(db, 'settings.ai', { keySet: ai.hasGeminiKey(db) }, req.user!.id, req.user!.name);
-    return { hasKey: ai.hasGeminiKey(db), test: ai.hasGeminiKey(db) ? await ai.testKey(db, { fetch: opts.aiFetch }) : null };
+    return { hasKey: ai.hasGeminiKey(db), provider: ai.keyProvider(db), test: ai.hasGeminiKey(db) ? await ai.testKey(db, { fetch: opts.aiFetch }) : null };
   }));
-  app.get('/api/settings/ai', session(), wrap(() => ({ hasKey: ai.hasGeminiKey(db) })));
+  app.get('/api/settings/ai', session(), wrap(() => ({ hasKey: ai.hasGeminiKey(db), provider: ai.keyProvider(db) })));
+  // Vendor support access: only the owner can switch it; it is shown on every device and logged.
+  app.get('/api/settings/support', session(), wrap(() => ({ on: supportOn(db), available: !!VENDOR.vendorApi && licensingOn(), vendor: VENDOR.name })));
+  app.post('/api/settings/support', session(), wrap(req => setSupportAccess(db, req.user!, !!req.body?.on)));
 
   /* ---------- AI ---------- */
   app.post('/api/ai/rx', session('ai'), wrap(req => ai.parsePrescription(db, req.body || {}, { fetch: opts.aiFetch }, req.device!.did)));

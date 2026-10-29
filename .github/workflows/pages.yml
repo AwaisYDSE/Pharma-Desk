@@ -36,6 +36,8 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item (Get-Command node).Source pkg/app/pharmadesk-node.exe
+          # Free Cloudflare connector: gives the shop server a secure address phones can use from anywhere.
+          Invoke-WebRequest https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -OutFile pkg/app/cloudflared.exe
           Remove-Item pkg/app/windows -Recurse -Force -ErrorAction SilentlyContinue
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
@@ -52,7 +54,8 @@ jobs:
           if (-not (Test-Path $exe)) { throw 'not installed' }
           if (-not ((Get-Item "$env:ProgramData\PharmaDesk" -Force).Attributes -match 'Hidden')) { throw 'data folder not hidden' }
           # Start the server ourselves so we can stop it again (CI must not be left with a server running).
-          $env:PHARMADESK_DATA = "$env:ProgramData\PharmaDesk"; $env:PHARMADESK_OPEN = '0'
+          $env:PHARMADESK_DATA = "$env:ProgramData\PharmaDesk"; $env:PHARMADESK_OPEN = '0'; $env:NO_TUNNEL = '1'
+          if (-not (Test-Path "$env:ProgramFiles\PharmaDesk\cloudflared.exe")) { throw 'cloudflared missing' }
           $app = "$env:ProgramFiles\PharmaDesk"
           $p = Start-Process $exe -ArgumentList '--no-warnings','server\server.mjs' -WorkingDirectory $app -PassThru
           try {
@@ -90,9 +93,10 @@ jobs:
           cp out/PharmaDesk-Mac.pkg "$RUNNER_TEMP/PharmaDesk-Mac.pkg"
           sudo installer -pkg "$RUNNER_TEMP/PharmaDesk-Mac.pkg" -target /
           lipo -archs /Applications/PharmaDesk.app/Contents/Resources/node
+          test -x /Applications/PharmaDesk.app/Contents/Resources/cloudflared
           for i in $(seq 1 20); do curl -fs http://127.0.0.1:4317/local/status && break; sleep 2; done || true
           if ! curl -fs http://127.0.0.1:4317/api/hello; then
-            PHARMADESK_OPEN=0 /Applications/PharmaDesk.app/Contents/MacOS/PharmaDesk &
+            NO_TUNNEL=1 PHARMADESK_OPEN=0 /Applications/PharmaDesk.app/Contents/MacOS/PharmaDesk &
             for i in $(seq 1 20); do curl -fs http://127.0.0.1:4317/api/hello && break; sleep 2; done
           fi
           curl -fs http://127.0.0.1:4317/local/status | grep -q '"needsOwner":true'

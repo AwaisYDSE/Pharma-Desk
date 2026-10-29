@@ -63,6 +63,8 @@ export interface User extends Synced {
 export interface Shop extends Synced {
   name: string; logo?: string | null; address?: string; phone?: string; ntn?: string; strn?: string; drugLicense?: string;
   receiptFooter?: string; catalogChoice?: 'builtin' | 'own';
+  /** The owner switched on support access for the vendor — shown on every device. */
+  supportAccess?: boolean;
 }
 export interface AuditEntry extends Synced {
   at: string; userId: string | null; userName?: string | null; deviceId?: string; action: string;

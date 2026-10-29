@@ -8,6 +8,7 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { VENDOR } from '../shared/vendor.ts';
 import QRCode from 'qrcode';
 
 export interface Endpoints { lan: string[]; tailscale: string | null; cloudflare: string | null }
@@ -116,7 +117,16 @@ export function pairingPayload(serverId: string, name: string, endpoints: Endpoi
 }
 
 export async function pairingQr(payload: object) {
-  const text = 'pharmadesk:' + Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const code = 'pharmadesk:' + Buffer.from(JSON.stringify(payload)).toString('base64url');
+  // The QR is a normal web link: a phone camera opens PharmaDesk straight from the shop PC
+  // (same Wi-Fi), with the pairing code already filled in. In-app scanners read the code from it.
+  const urls = (payload as { urls?: string[] }).urls || [];
+  // With a secure address (Cloudflare/Tailscale https) phones use the fixed public app — it works from
+  // anywhere and keeps working offline. Without one, open the app from this PC on the shop Wi-Fi.
+  const secure = urls.some(u => u.startsWith('https://'));
+  const lan = urls.find(u => u.startsWith('http://') && !/localhost|127\.0\.0\.1/.test(u));
+  const home = secure ? VENDOR.appUrl : lan || urls[0];
+  const text = home ? `${home.replace(/\/$/, '')}/#pair=${code}` : code;
   return {
     text,
     svg: await QRCode.toString(text, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' }),
@@ -126,7 +136,9 @@ export async function pairingQr(payload: object) {
 
 export function decodePairingText(text: string): { sid: string; name: string; urls: string[] } | null {
   try {
-    const raw = text.startsWith('pharmadesk:') ? text.slice(11) : text;
+    const m = text.match(/[#&?]pair=([^&\s]+)/);
+    const t = m ? decodeURIComponent(m[1]) : text;
+    const raw = t.startsWith('pharmadesk:') ? t.slice(11) : t;
     const p = JSON.parse(Buffer.from(raw, 'base64url').toString());
     return p.app === 'pharmadesk' && p.sid ? p : null;
   } catch { return null; }

@@ -6,5 +6,6 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 dir = fso.GetParentFolderName(WScript.ScriptFullName)
 Set env = sh.Environment("PROCESS")
 env("PHARMADESK_DATA") = sh.ExpandEnvironmentStrings("%ProgramData%") & "\PharmaDesk"
+env("CLOUDFLARED") = dir & "\cloudflared.exe"
 If WScript.Arguments.Count > 0 Then env("PHARMADESK_OPEN") = "0" Else env("PHARMADESK_OPEN") = "1"
 sh.Run """" & dir & "\pharmadesk-node.exe"" --no-warnings """ & dir & "\server\server.mjs""", 0, False

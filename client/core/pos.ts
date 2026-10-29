@@ -21,6 +21,7 @@ export interface CartLine {
   discountBp: number;
   taxBp: number;
   overriddenBy?: string; // supervisor who approved a non-FEFO batch
+  listPrice?: number;    // the normal price; unitPrice differs only if someone changed it
 }
 
 export interface Cart { lines: CartLine[]; billDiscount: number; patientId: string | null; inclusive: boolean }
@@ -64,7 +65,7 @@ export async function addToCart(ctx: Ctx, cart: Cart, medicine: Medicine, qty = 
     const existing = cart.lines.find(l => l.batch.id === a.batch.id);
     const price = a.batch.salePrice || medicine.salePrice;
     if (existing) existing.qty += a.qty;
-    else cart.lines.push({ key: uuid(), medicine, batch: a.batch, qty: a.qty, unitPrice: price, discountBp: 0, taxBp: medicine.gstBp || 0 });
+    else cart.lines.push({ key: uuid(), medicine, batch: a.batch, qty: a.qty, unitPrice: price, listPrice: price, discountBp: 0, taxBp: medicine.gstBp || 0 });
     const days = a.batch.pending ? null : daysBetween(today, a.batch.expiryDate);
     if (days !== null && days <= 30) warnings.push({ kind: 'fefo', batchNo: a.batch.batchNo, days, message: `FEFO: Batch #${a.batch.batchNo} expires in ${days} days — sell this one first!` });
   }
@@ -88,6 +89,17 @@ export async function overrideBatch(ctx: Ctx, cart: Cart, lineKey: string, newBa
   line.batch = target;
   line.overriddenBy = fefoFirst && fefoFirst.id !== target.id ? approver.id : undefined;
 }
+
+/** Change the selling price of one line (paisa). Needs pos.price — checked again at checkout. */
+export function setPrice(cart: Cart, lineKey: string, paisa: number) {
+  const l = cart.lines.find(x => x.key === lineKey);
+  if (!l) return;
+  if (!Number.isFinite(paisa) || paisa < 0 || paisa > 100_000_000) throw new AppError('INVALID', 'Enter a valid price');
+  l.unitPrice = Math.round(paisa);
+}
+
+/** True when any line is sold at a price different from its normal price. */
+export const priceChanged = (cart: Cart) => cart.lines.some(l => l.listPrice != null && l.unitPrice !== l.listPrice);
 
 export function setQty(cart: Cart, lineKey: string, qty: number) {
   const l = cart.lines.find(x => x.key === lineKey);
@@ -116,6 +128,7 @@ export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: Serve
   const t = totals(cart);
   const discounted = cart.billDiscount > 0 || cart.lines.some(l => l.discountBp > 0);
   if (discounted && !can(ctx.user, 'pos.discount') && !opts.supervisorId) throw new OverrideRequiredError('pos.discount', 'Discounts need a supervisor PIN');
+  if (priceChanged(cart) && !can(ctx.user, 'pos.price') && !opts.supervisorId) throw new OverrideRequiredError('pos.price', 'Changing the price needs a supervisor PIN');
   if (pay.method === 'credit' && !can(ctx.user, 'pos.credit_sale') && !opts.supervisorId) throw new OverrideRequiredError('pos.credit_sale', 'Credit sales need a supervisor PIN');
   if (pay.method === 'credit' && !cart.patientId) throw new AppError('PATIENT_REQUIRED', 'Choose the customer for a credit sale');
   if (pay.method !== 'credit' && pay.paid < t.total) throw new AppError('UNDERPAID', 'Amount received is less than the total');
@@ -141,6 +154,8 @@ export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: Serve
   ];
   if (pay.method === 'credit') rows.push({ tbl: 'ledger' as never, row: { id: uuid(), partyType: 'patient', partyId: cart.patientId, date: isoDate(), debit: t.total, credit: 0, ref: invoice.number, note: 'Credit sale', hlc: stamp(ctx) } as never });
   const overrides = cart.lines.filter(l => l.overriddenBy);
+  const repriced = cart.lines.filter(l => l.listPrice != null && l.unitPrice !== l.listPrice);
+  if (repriced.length) rows.push({ tbl: 'audit' as never, row: { id: uuid(), at: now, userId: ctx.user.id, userName: ctx.user.name, deviceId: ctx.deviceId, action: 'pos.price_change', entity: 'invoices', entityId: invoiceId, details: { bill: invoice.number, approvedBy: opts.supervisorId || ctx.user.id, items: repriced.map(l => ({ medicine: l.medicine.name, from: l.listPrice, to: l.unitPrice })) }, hlc: stamp(ctx) } as never });
   if (overrides.length) rows.push({ tbl: 'audit' as never, row: { id: uuid(), at: now, userId: ctx.user.id, userName: ctx.user.name, deviceId: ctx.deviceId, action: 'pos.fefo_override', entity: 'invoices', entityId: invoiceId, details: overrides.map(l => ({ medicine: l.medicine.name, batch: l.batch.batchNo, approvedBy: l.overriddenBy })), hlc: stamp(ctx) } as never });
 
   const opId = uuid();

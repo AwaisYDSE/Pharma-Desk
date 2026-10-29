@@ -59,7 +59,8 @@ export class ServerClient {
   async request<T>(method: string, path: string, body?: unknown, { session = true } = {}): Promise<T> {
     const p = this.pairing;
     const preferred = await getMeta<string | null>(this.ctx.db, 'lastGoodUrl', null);
-    const urls = [...new Set([preferred, ...p.urls].filter(Boolean) as string[])];
+    const all = [...new Set([preferred, ...p.urls].filter(Boolean) as string[])];
+    const urls = typeof location !== 'undefined' && location.protocol ? usableUrls(all) : all;
     let lastErr: unknown = new NetworkError();
     for (const base of urls) {
       const ctl = new AbortController();
@@ -201,9 +202,27 @@ const stripLocal = (op: Op): Op => {
 };
 
 /** Pair this device with a shop server (QR payload + PIN typed by the user). */
+/** Thrown when this page is secure (https) but the shop PC only has a plain http address on the shop
+ *  Wi-Fi — browsers block that. The UI then opens PharmaDesk from the shop PC's own address instead. */
+export class NeedsLocalOpen extends AppError {
+  url: string;
+  constructor(url: string) { super('OPEN_LOCAL', 'Open PharmaDesk from the shop PC address on the shop Wi-Fi'); this.url = url; }
+}
+
+/** Addresses this page can actually use: same address first; a secure page skips plain http ones. */
+export function usableUrls(urls: string[], here: { protocol: string; origin: string } = typeof location !== 'undefined' ? location : { protocol: 'http:', origin: '' }): string[] {
+  const secure = here.protocol === 'https:';
+  const list = urls.filter(u => !secure || u.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(u));
+  const same = list.find(u => u.replace(/\/$/, '') === here.origin);
+  return same ? [same, ...list.filter(u => u !== same)] : list;
+}
+
 export async function pair(ctx: Ctx, qr: { sid: string; name: string; urls: string[] }, pin: string, deviceName: string, platform = '') {
   let lastErr: unknown = new NetworkError('Could not reach the shop server. Check Wi-Fi or internet.');
-  for (const base of qr.urls) {
+  const urls = usableUrls(qr.urls);
+  const lan = qr.urls.find(u => u.startsWith('http://') && !/localhost|127\.0\.0\.1/.test(u));
+  if (!urls.length && lan) throw new NeedsLocalOpen(lan);
+  for (const base of urls) {
     let res: Response;
     try {
       res = await ctx.fetch(base.replace(/\/$/, '') + '/api/pair', {
@@ -213,6 +232,7 @@ export async function pair(ctx: Ctx, qr: { sid: string; name: string; urls: stri
     } catch { continue; }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { lastErr = new AppError(data.code || 'PAIR_FAILED', data.message || PIN_MISMATCH_MESSAGE); break; }
+    if (!data.token) continue; // not a PharmaDesk server answering
     const pairing: Pairing = { serverId: data.serverId, serverName: data.serverName, token: data.token, deviceId: data.deviceId, beaconKey: data.beaconKey, urls: qr.urls };
     // A device belongs to exactly one shop. Pairing with a different shop wipes the old shop's data.
     if (ctx.pairing && ctx.pairing.serverId !== pairing.serverId) await ctx.db.delete().then(() => ctx.db.open());
@@ -222,5 +242,7 @@ export async function pair(ctx: Ctx, qr: { sid: string; name: string; urls: stri
     ctx.deviceId = pairing.deviceId;
     return pairing;
   }
+  // Secure page, secure address unreachable (no internet at the shop) — use the shop Wi-Fi address.
+  if (lan && typeof location !== 'undefined' && location.protocol === 'https:' && lastErr instanceof NetworkError) throw new NeedsLocalOpen(lan);
   throw lastErr;
 }
