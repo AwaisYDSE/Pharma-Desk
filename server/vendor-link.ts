@@ -9,7 +9,7 @@ import { getIdentity, encryptSecret, decryptSecret } from './identity.ts';
 import { serverClock } from './ops.ts';
 import * as sup from './supervision.ts';
 import { pairingPayload, type Endpoints } from './tunnel.ts';
-import { getLicenseToken, installId, setSuspended } from './license.ts';
+import { getLicenseToken, installId, setSuspended, trustedNow } from './license.ts';
 import { VENDOR, licensingOn } from '../shared/vendor.ts';
 import { AppError } from '../shared/util.ts';
 import type { User, Shop, Invoice, Medicine, Patient } from '../shared/types.ts';
@@ -75,6 +75,8 @@ export async function checkIn(db: DB, deps: CheckinDeps = {}): Promise<{ suspend
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) return null;
+    const served = Date.parse(res.headers?.get?.('date') || '');
+    if (Number.isFinite(served)) trustedNow(db, served); // the dashboard's clock also moves time forward
     const d = await res.json() as { suspended?: boolean; message?: string | null };
     setSuspended(db, !!d.suspended);
     setSetting(db, 'vendor_message', d.message || null);

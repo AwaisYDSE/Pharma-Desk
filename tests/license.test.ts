@@ -95,3 +95,25 @@ describe('Shipped build', () => {
     expect(SHIPPED.vendorApi).toMatch(/^https:\/\/pharmadesk-admin\.[\w-]+\.workers\.dev$/);
   });
 });
+
+describe('Turning the PC clock back', () => {
+  it('cannot revive an expired key', async () => {
+    const { VENDOR } = await import('../shared/vendor.ts');
+    const { getSetting, setSetting } = await import('../server/db.ts');
+    const saved = { ...VENDOR };
+    const S = await startShop();
+    try {
+      const v = vendor();
+      Object.assign(VENDOR, { publicKey: v.pub, requireLicense: true });
+      setSetting(S.db, 'license_token', issue(v.privateKey, { id: 'L-9', shop: 'S', issued: day(-30), expires: day(10) }));
+      expect((await licenseState(S.db)).locked).toBe(false);
+      // The shop has already lived past the expiry date (seen by the PC or the dashboard)...
+      setSetting(S.db, 'clock_max', String(Date.now() + 20 * 86400000));
+      // ...so with the PC clock set back to today, the key is still expired.
+      const st = await licenseState(S.db);
+      expect(st.status).toBe('expired');
+      expect(st.locked).toBe(true);
+      expect(Number(getSetting(S.db, 'clock_max'))).toBeGreaterThan(Date.now() + 19 * 86400000);
+    } finally { Object.assign(VENDOR, saved); await stop(S); }
+  });
+});

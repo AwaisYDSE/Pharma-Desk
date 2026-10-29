@@ -8,6 +8,15 @@ import { getSetting, setSetting, type DB } from './db.ts';
 import { verifyLicense, type LicenseStatus } from '../shared/license.ts';
 import { VENDOR, licensingOn } from '../shared/vendor.ts';
 
+/** The latest time this shop has ever seen. Turning the PC clock back cannot go below it,
+ *  so an expired key stays expired. Moves forward with the PC clock and the dashboard's clock. */
+export function trustedNow(db: DB, observed = Date.now()): Date {
+  const prev = Number(getSetting(db, 'clock_max') || 0);
+  const t = Math.max(prev, observed);
+  if (t > prev + 60_000) setSetting(db, 'clock_max', String(t));
+  return new Date(t);
+}
+
 /** A stable id for this install, used for optional machine-binding and the dashboard. */
 export function installId(db: DB): string {
   let id = getSetting(db, 'install_id');
@@ -19,7 +28,7 @@ export function getLicenseToken(db: DB): string | null { return getSetting(db, '
 
 /** Store a key only if it verifies; returns the resulting status. */
 export async function activateLicense(db: DB, token: string): Promise<LicenseStatus> {
-  const st = await verifyLicense(token, VENDOR.publicKey, { machine: installId(db) });
+  const st = await verifyLicense(token, VENDOR.publicKey, { machine: installId(db), now: trustedNow(db) });
   if (st.state === 'valid' || st.state === 'expired') setSetting(db, 'license_token', token.trim());
   return st;
 }
@@ -43,7 +52,7 @@ export interface LicenseState {
 export async function licenseState(db: DB): Promise<LicenseState> {
   if (!licensingOn()) return { on: false, locked: false, needsKey: false, status: 'off', vendor: VENDOR.name };
   const token = getLicenseToken(db);
-  const st = token ? await verifyLicense(token, VENDOR.publicKey, { machine: installId(db) }) : { state: 'none' as const };
+  const st = token ? await verifyLicense(token, VENDOR.publicKey, { machine: installId(db), now: trustedNow(db) }) : { state: 'none' as const };
   const base = { on: true, vendor: VENDOR.name };
   if (isSuspended(db)) {
     const shop = st.state === 'valid' || st.state === 'expired' || st.state === 'machine_mismatch' ? st.payload.shop : undefined;
