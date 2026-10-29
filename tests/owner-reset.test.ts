@@ -1,9 +1,9 @@
-// Forgot owner PIN: recovery code or a one-time reset key signed by the vendor — only on the server PC.
+// Forgot owner PIN: a one-time reset key signed by the vendor, for one PC only.
 // Plan paused/ended: every device gets read-only mode (billing off), and it lifts on resume.
 import { describe, it, expect, afterEach } from 'vitest';
 import crypto from 'node:crypto';
 import { VENDOR } from '../shared/vendor.ts';
-import { newRecoveryCode, pcCode, resetOwnerPin } from '../server/owner-reset.ts';
+import { pcCode, resetOwnerPin } from '../server/owner-reset.ts';
 import { pinMatches } from '../server/supervision.ts';
 import { allRows, getRow } from '../server/db.ts';
 import { startShop, stop, newDevice, seedMedicine, type Shop } from './helpers.ts';
@@ -22,38 +22,25 @@ function vendorKeys() {
 }
 
 describe('Forgot owner PIN', () => {
-  it('recovery code sets a new PIN once; the old code then stops working', async () => {
-    const S = await startShop(); shops.push(S);
-    const code = newRecoveryCode(S.db);
-    expect(code).toMatch(/^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/);
-    expect(() => resetOwnerPin(S.db, { method: 'recovery', code: 'WRONG-CODE', pin: '654321' })).toThrow(/not right/);
-    const r = resetOwnerPin(S.db, { method: 'recovery', code: code.toLowerCase(), pin: '654321' });
-    expect(pinMatches(owner(S), '654321')).toBe(true);
-    expect(r.recoveryCode).not.toBe(code);
-    expect(() => resetOwnerPin(S.db, { method: 'recovery', code, pin: '777777' })).toThrow();
-    expect(allRows<{ id: string; action: string }>(S.db, 'audit' as never).some(a => a.action === 'owner.pin_reset')).toBe(true);
-  });
-
   it('a vendor reset key works only for this PC, only once, and only before it expires', async () => {
     const S = await startShop(); shops.push(S);
     const make = vendorKeys();
     const exp = new Date(Date.now() + 864e5).toISOString();
-    expect(() => resetOwnerPin(S.db, { method: 'vendor', code: make({ k: 'owner-reset', pc: 'ABCD-EFGH-JK', nonce: 'n0', exp }), pin: '111222' })).toThrow(/different PC/);
-    expect(() => resetOwnerPin(S.db, { method: 'vendor', code: make({ k: 'owner-reset', pc: pcCode(S.db), nonce: 'n1', exp: new Date(Date.now() - 1000).toISOString() }), pin: '111222' })).toThrow(/expired/);
+    expect(() => resetOwnerPin(S.db, { code: make({ k: 'owner-reset', pc: 'ABCD-EFGH-JK', nonce: 'n0', exp }), pin: '111222' })).toThrow(/different PC/);
+    expect(() => resetOwnerPin(S.db, { code: make({ k: 'owner-reset', pc: pcCode(S.db), nonce: 'n1', exp: new Date(Date.now() - 1000).toISOString() }), pin: '111222' })).toThrow(/expired/);
     const key = make({ k: 'owner-reset', pc: pcCode(S.db), nonce: 'n2', exp });
-    expect(() => resetOwnerPin(S.db, { method: 'vendor', code: key.slice(0, -5) + 'AAAAA', pin: '111222' })).toThrow(/not valid/);
-    resetOwnerPin(S.db, { method: 'vendor', code: key, pin: '111222' });
+    expect(() => resetOwnerPin(S.db, { code: key.slice(0, -5) + 'AAAAA', pin: '111222' })).toThrow(/not valid/);
+    resetOwnerPin(S.db, { code: key, pin: '111222' });
     expect(pinMatches(owner(S), '111222')).toBe(true);
-    expect(() => resetOwnerPin(S.db, { method: 'vendor', code: key, pin: '333444' })).toThrow(/already used/);
+    expect(() => resetOwnerPin(S.db, { code: key, pin: '333444' })).toThrow(/already used/);
   });
 
   it('too many wrong tries pause resets', async () => {
     const S = await startShop(); shops.push(S);
-    newRecoveryCode(S.db);
-    for (let i = 0; i < 5; i++) expect(() => resetOwnerPin(S.db, { method: 'recovery', code: 'NOPE', pin: '654321' })).toThrow(/not right/);
-    expect(() => resetOwnerPin(S.db, { method: 'recovery', code: 'NOPE', pin: '654321' })).toThrow(/15 minutes/);
+    vendorKeys();
+    for (let i = 0; i < 5; i++) expect(() => resetOwnerPin(S.db, { code: 'PDR.bad.key', pin: '654321' })).toThrow(/not valid/);
+    expect(() => resetOwnerPin(S.db, { code: 'PDR.bad.key', pin: '654321' })).toThrow(/15 minutes/);
   });
-
 });
 
 describe('Plan paused or ended', () => {

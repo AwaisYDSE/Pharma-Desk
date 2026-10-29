@@ -14,7 +14,7 @@ interface Person { id: string; name: string; status: string; device: string | nu
 interface Run { started_at: string; stopped_at: string | null; clean: number | null }
 
 const ACTION_TEXT: Record<string, (d: Record<string, unknown>) => string> = {
-  'owner.pin_reset': d => `Owner PIN reset with ${d.method}`,
+  'owner.pin_reset': () => 'Owner PIN reset with a key from the developer',
   'owner.reset_failed': () => 'Wrong code when resetting the owner PIN',
   'support.on': () => 'Turned developer support access ON',
   'support.off': () => 'Turned developer support access OFF',

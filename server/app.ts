@@ -18,7 +18,7 @@ import { pairingPayload, pairingQr, type Endpoints } from './tunnel.ts';
 import { can } from '../shared/permissions.ts';
 import { licensingOn } from '../shared/vendor.ts';
 import { licenseState, activateLicense, installId } from './license.ts';
-import { newRecoveryCode, pcCode, resetOwnerPin } from './owner-reset.ts';
+import { pcCode, resetOwnerPin } from './owner-reset.ts';
 import { setSupportAccess, supportOn, checkIn } from './vendor-link.ts';
 import { VENDOR } from '../shared/vendor.ts';
 import { AppError } from '../shared/util.ts';
@@ -127,12 +127,12 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     if (shopName) renameServer(db, String(shopName).slice(0, 80));
     const added = setupShop(db, String(shopName || 'My Pharmacy').slice(0, 80), catalog === 'builtin' ? 'builtin' : 'own', owner, img(logo, 600_000));
     void checkInNow();
-    return { ok: true, userId: owner.id, medicines: added, recoveryCode: newRecoveryCode(db) };
+    return { ok: true, userId: owner.id, medicines: added };
   }));
   app.post('/local/checkin-now', localOnly, wrap(async () => { await checkInNow(); return { license: await licenseState(db) }; }));
   /** Forgot the owner PIN — only on the server PC itself. */
-  app.get('/local/owner-reset', localOnly, wrap(() => ({ pcCode: pcCode(db), hasRecovery: !!getSetting(db, 'owner_recovery'), vendor: VENDOR.name, vendorReset: !!VENDOR.publicKey })));
-  app.post('/local/owner-reset', localOnly, wrap(req => resetOwnerPin(db, { method: req.body?.method === 'vendor' ? 'vendor' : 'recovery', code: String(req.body?.code || ''), pin: String(req.body?.pin || '') })));
+  app.get('/local/owner-reset', localOnly, wrap(() => ({ pcCode: pcCode(db), vendor: VENDOR.name, vendorReset: !!VENDOR.publicKey })));
+  app.post('/local/owner-reset', localOnly, wrap(req => resetOwnerPin(db, { code: String(req.body?.code || ''), pin: String(req.body?.pin || '') })));
   /** The server PC is also a till: it pairs itself without typing the PIN. */
   app.post('/local/self-pair', localOnly, wrap(() => {
     const id = getIdentity(db)!;
@@ -223,10 +223,6 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   }));
   app.get('/api/settings/ai', session(), wrap(() => ({ hasKey: ai.hasGeminiKey(db), provider: ai.keyProvider(db) })));
   // Vendor support access: only the owner can switch it; it is shown on every device and logged.
-  app.post('/api/settings/recovery', session(), wrap(req => {
-    if (!(req.user as { owner?: boolean }).owner) throw new AppError('FORBIDDEN', 'Only the owner can make a recovery code');
-    return { code: newRecoveryCode(db) };
-  }));
   app.get('/api/settings/support', session(), wrap(() => ({ on: supportOn(db), available: !!VENDOR.vendorApi && licensingOn(), vendor: VENDOR.name })));
   app.post('/api/settings/support', session(), wrap(req => setSupportAccess(db, req.user!, !!req.body?.on)));
 

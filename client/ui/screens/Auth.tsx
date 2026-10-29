@@ -35,7 +35,6 @@ export function OwnerSetup({ onDone, standalone, onBack }: { onDone: () => void;
   const { t, ctx } = useStore();
   const [f, setF] = useState({ shopName: '', name: '', username: 'owner', pin: '', pin2: '', catalog: '' as '' | 'builtin' | 'own', logo: null as string | null, photo: null as string | null });
   const [step, setStep] = useState(1);
-  const [rc, setRc] = useState<string | null>(null);
   const a = useAsync(async () => {
     if (f.pin !== f.pin2) throw new Error('The two PINs are different');
     if (!f.catalog) throw new Error('Choose how to start your medicine list');
@@ -47,11 +46,9 @@ export function OwnerSetup({ onDone, standalone, onBack }: { onDone: () => void;
       const r = await fetch('/local/setup-owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(f) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.message || 'The server could not save this. Is it still running?');
-      if (d.recoveryCode) { setRc(d.recoveryCode); return; }
     }
     onDone();
   });
-  if (rc) return <RecoveryCodeScreen code={rc} onDone={onDone} />;
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   return (
     <div className="auth"><FloatingPills />
@@ -234,39 +231,18 @@ export function LoginScreen() {
   );
 }
 
-/** Shown once after setup: the owner's recovery code for a forgotten PIN. */
-function RecoveryCodeScreen({ code, onDone }: { code: string; onDone: () => void }) {
-  const [ok, setOk] = useState(false);
-  return (
-    <div className="auth"><FloatingPills />
-      <div className="panel" style={{ width: 'min(520px, 100%)' }}>
-        <Brand sub="Main Server PC · first start" />
-        <h2 style={{ margin: '6px 0 0', fontSize: 18 }}>Save your recovery code</h2>
-        <p style={{ margin: 0, color: '#94A3B8', fontSize: 13 }}>If you ever forget the owner PIN, this code lets you set a new one on this PC. Write it down or take a photo and keep it safe. It is shown only now.</p>
-        <div data-no-tr className="num" style={{ fontSize: 26, fontWeight: 800, letterSpacing: '.08em', textAlign: 'center', padding: '16px 10px', borderRadius: 14, border: '2px dashed #2DD4BF', userSelect: 'all' }}>{code}</div>
-        <button type="button" className="btn" onClick={() => { navigator.clipboard?.writeText(code).catch(() => {}); }}><Icon name="copy" /> Copy code</button>
-        <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={ok} onChange={e => setOk(e.target.checked)} /> I have saved this code</label>
-        <button type="button" className="btn primary" disabled={!ok} onClick={onDone}>Continue</button>
-      </div>
-    </div>
-  );
-}
-
-/** Forgot PIN: staff ask the owner; the owner resets on the server PC with the recovery code or a reset key. */
+/** Forgot PIN: staff ask the owner; the owner resets on the server PC with a one-time reset key from the developer. */
 function ForgotPin({ onBack, onReset }: { onBack: () => void; onReset: (username: string) => Promise<void> }) {
-  const [info, setInfo] = useState<{ pcCode: string; hasRecovery: boolean; vendor: string; vendorReset: boolean } | null | 'remote'>(null);
-  const [method, setMethod] = useState<'recovery' | 'vendor'>('recovery');
+  const [info, setInfo] = useState<{ pcCode: string; vendor: string; vendorReset: boolean } | null | 'remote'>(null);
   const [f, setF] = useState({ code: '', pin: '', pin2: '' });
-  const [done, setDone] = useState<{ recoveryCode: string; username: string } | null>(null);
-  useEffect(() => { fetch('/local/owner-reset').then(r => r.ok ? r.json() : Promise.reject()).then(d => { setInfo(d); if (!d.hasRecovery && d.vendorReset) setMethod('vendor'); }).catch(() => setInfo('remote')); }, []);
+  useEffect(() => { fetch('/local/owner-reset').then(r => r.ok ? r.json() : Promise.reject()).then(setInfo).catch(() => setInfo('remote')); }, []);
   const a = useAsync(async () => {
     if (f.pin !== f.pin2) throw new Error('The two PINs are different');
-    const r = await fetch('/local/owner-reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ method, code: f.code, pin: f.pin }) });
+    const r = await fetch('/local/owner-reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: f.code, pin: f.pin }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.message || 'Could not reset the PIN');
-    setDone(d);
+    await onReset(d.username);
   });
-  if (done) return <RecoveryCodeScreen code={done.recoveryCode} onDone={() => void onReset(done.username)} />;
   return (
     <div className="auth"><FloatingPills />
       <form className="panel" style={{ width: 'min(520px, 100%)' }} onSubmit={e => { e.preventDefault(); void a.run(); }}>
@@ -274,19 +250,10 @@ function ForgotPin({ onBack, onReset }: { onBack: () => void; onReset: (username
         <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={onBack}>← Back</button>
         <p style={{ margin: 0, fontSize: 14 }}>Staff: ask the owner to set a new PIN for you in Users and Access.</p>
         {info === 'remote' && <p style={{ margin: 0, color: '#94A3B8', fontSize: 13 }}>Owner: open PharmaDesk on the shop's server PC to reset the owner PIN.</p>}
-        {info && info !== 'remote' && <>
-          <p style={{ margin: 0, fontSize: 14 }}>Owner: set a new owner PIN with one of these.</p>
-          <div className="row" style={{ gap: 8 }}>
-            <button type="button" className={`btn sm ${method === 'recovery' ? 'primary' : ''}`} onClick={() => setMethod('recovery')}>Recovery code</button>
-            {info.vendorReset && <button type="button" className={`btn sm ${method === 'vendor' ? 'primary' : ''}`} onClick={() => setMethod('vendor')}>Reset key from the developer</button>}
-          </div>
-          {method === 'recovery'
-            ? <label className="field">Recovery code (from when the shop was set up)<input className="input" required value={f.code} onChange={e => setF({ ...f, code: e.target.value })} placeholder="XXXX-XXXX-XXXX-XXXX" autoCapitalize="characters" /></label>
-            : <>
-                <p style={{ margin: 0, color: '#94A3B8', fontSize: 13 }}>Send this PC code to the developer. You will get a reset key for this PC that works once.</p>
-                <div data-no-tr className="num" style={{ fontSize: 22, fontWeight: 800, letterSpacing: '.08em', textAlign: 'center', padding: 12, borderRadius: 12, border: '1px dashed #2DD4BF', userSelect: 'all' }}>{info.pcCode}</div>
-                <label className="field">Reset key<textarea className="input" required rows={3} value={f.code} onChange={e => setF({ ...f, code: e.target.value })} placeholder="PDR.…" /></label>
-              </>}
+        {info && info !== 'remote' && info.vendorReset && <>
+          <p style={{ margin: 0, fontSize: 14 }}>Owner: send this PC code to the developer. You will get a reset key for this PC that works once.</p>
+          <div data-no-tr className="num" style={{ fontSize: 22, fontWeight: 800, letterSpacing: '.08em', textAlign: 'center', padding: 12, borderRadius: 12, border: '1px dashed #2DD4BF', userSelect: 'all' }}>{info.pcCode}</div>
+          <label className="field">Reset key<textarea className="input" required rows={3} value={f.code} onChange={e => setF({ ...f, code: e.target.value })} placeholder="PDR.…" /></label>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <label className="field" style={{ flex: 1 }}>New PIN<input className="input" type="password" inputMode="numeric" required value={f.pin} onChange={e => setF({ ...f, pin: e.target.value })} /></label>
             <label className="field" style={{ flex: 1 }}>Repeat PIN<input className="input" type="password" inputMode="numeric" required value={f.pin2} onChange={e => setF({ ...f, pin2: e.target.value })} /></label>
