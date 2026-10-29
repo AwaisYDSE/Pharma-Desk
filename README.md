@@ -6,7 +6,7 @@
 
 ### Developed by **Awais Amin**
 
-**▶ Open the app: [awaisydse.github.io/Pharma-Desk](https://awaisydse.github.io/Pharma-Desk/)** · **[Download for Windows (shop server)](https://awaisydse.github.io/Pharma-Desk/PharmaDesk-Windows.zip)**
+**▶ Open the app: [awaisydse.github.io/Pharma-Desk](https://awaisydse.github.io/Pharma-Desk/)** · **Shop server: [Windows](https://awaisydse.github.io/Pharma-Desk/PharmaDesk-Setup.exe) · [Mac](https://awaisydse.github.io/Pharma-Desk/PharmaDesk-Mac.pkg)**
 
 PharmaDesk was designed and developed by **Awais Amin**. He built it to give every medical store — from a small corner pharmacy to a busy chain counter — the same tools that large pharmacies pay for: fast billing, batch and expiry control, stock that stays correct across every counter and phone, and full oversight for the owner.
 
@@ -44,20 +44,9 @@ stays on its own PC.
 
 ## Install
 
-### Which device is the server?
-**Only a Windows PC can be the shop server.** It keeps the master copy of all the shop's data, lets phones and other counters sync with each other, takes automatic backups every 6 hours, and records when it was switched on or off. The server PC also works as a normal billing counter.
+**Shop server (one PC):** download **[PharmaDesk for Windows](https://awaisydse.github.io/Pharma-Desk/PharmaDesk-Setup.exe)** or **[for Mac](https://awaisydse.github.io/Pharma-Desk/PharmaDesk-Mac.pkg)** and open it. It installs in one step, starts with the computer, and opens the owner setup by itself.
 
-Phones, tablets and other PCs **connect** to it by scanning its QR code. On a PC, the first screen of the web app offers **"Use this PC as the server"** with the download and steps; phones only see "Scan QR".
-
-### On the main shop PC (Windows)
-1. Download **PharmaDesk-Windows.zip** from [Releases](../../releases) and unzip it.
-2. Double-click **Start PharmaDesk Server**. (It installs the free Node.js the first time if needed.)
-3. Create the owner account, add your shop logo and photo, and choose the built-in medicine list or your own. Optional: double-click **Start automatically with Windows**.
-4. Recommended: install **[Tailscale](https://tailscale.com)** (free) on the server PC and the phones for a fixed private address that works from anywhere. The server also opens a free Cloudflare tunnel automatically.
-
-### On phones and other PCs
-1. Open the app link shown in **Settings** on the server PC (or the [web app](https://awaisydse.github.io/Pharma-Desk/)), then **Install / Add to Home Screen**.
-2. Tap **Scan QR**, scan the QR in **Settings** on the server PC, and type the **6-digit Server PIN**.
+**Phones and other PCs:** open **[the app](https://awaisydse.github.io/Pharma-Desk/)**, tap **Scan QR**, scan the QR in **Settings** on the server PC, and type its 6-digit PIN.
 
 ## How it's built
 
@@ -109,6 +98,7 @@ Phones, tablets and other PCs **connect** to it by scanning its QR code. On a PC
 | A user without permission tries to create, modify or delete | Tampered phone | Unauthorised change | Each switch is checked on the device and again on the server. |
 | Server started twice (double-click again) | User | Database opened twice, false "power cut" in the log | The second start sees the running server, opens it in the browser and stops without touching the data. |
 | Another program uses port 4317 | Other software | Server can't start | Clear message; nothing is written. |
+| Installer left in Downloads, or app files deleted by staff | People | Server removed by mistake | The installer deletes itself from Downloads after installing. The app is installed where only an administrator can change or remove it, and the data folder is hidden. |
 | Browser opened before the server was ready | Slow PC | "Can't connect" page | The server opens the browser itself only once it is ready. |
 | Language button pressed on a form | Bug (fixed) | Form submitted, false "pairing code not valid" | Every button with its own action is a plain button; a test checks all of them. |
 | A screen or message left in English | Missing translation | Mixed languages | Every sentence has Urdu, Arabic, Hindi and Spanish; a test fails if one is missing, and a browser test opens every screen in every language. |
@@ -140,6 +130,7 @@ npm test
 
 ## Honest limits
 - iPhones use the installable web app (Apple charges $99/year for the App Store). Android and Windows can install it from the browser too.
+- The installers are not code-signed (signing certificates cost money), so the first time Windows says "More info → Run anyway" and a Mac needs "System Settings → Privacy & Security → Open Anyway".
 - SMS login codes are not included because every SMS gateway charges per message.
 - On Google's free Gemini tier, Google may use what is sent to improve its products; PharmaDesk removes patient details first. AI interaction warnings are a second check for the pharmacist, not a replacement.
 - A phone opening the app over plain `http://` on shop Wi-Fi can't install it for offline start; use the Tailscale or Cloudflare `https://` address for installing.

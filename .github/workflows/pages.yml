@@ -1,11 +1,12 @@
-# Builds the PharmaDesk web app and publishes it on GitHub Pages
-# (https://awaisydse.github.io/Pharma-Desk/) — phones install it from there.
-name: Web app (GitHub Pages)
+# Builds PharmaDesk, makes the Windows and Mac installers, test-installs each one on a real
+# Windows and Mac machine, and only then publishes https://awaisydse.github.io/Pharma-Desk/
+name: Build, test and publish
 on:
   push: { branches: [main] }
   workflow_dispatch:
 permissions: { contents: read, pages: write, id-token: write }
 concurrency: { group: pages, cancel-in-progress: true }
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,14 +18,86 @@ jobs:
       - run: npm run typecheck
       - run: npm run build:server
       - run: npx vitest run --exclude 'tests/*.e2e.test.ts'
-      # The "Use this PC as the server" button downloads this file from the same site.
-      - run: cd release && zip -qr ../dist/PharmaDesk-Windows.zip PharmaDesk
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: dist }
-  deploy:
+      - uses: actions/upload-artifact@v4
+        with: { name: app, path: release/PharmaDesk }
+
+  windows:
     needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with: { name: app, path: pkg/app }
+      - name: Make installer
+        shell: pwsh
+        run: |
+          Copy-Item (Get-Command node).Source pkg/app/pharmadesk-node.exe
+          Remove-Item pkg/app/windows -Recurse -Force -ErrorAction SilentlyContinue
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc /Qp "/DAppDir=$PWD\pkg\app" installer\pharmadesk.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item out\PharmaDesk-Setup.exe
+      - name: Test-install it like a shop would
+        shell: pwsh
+        run: |
+          Copy-Item out\PharmaDesk-Setup.exe "$env:RUNNER_TEMP\PharmaDesk-Setup.exe"
+          Start-Process "$env:RUNNER_TEMP\PharmaDesk-Setup.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          if (-not (Test-Path "$env:ProgramFiles\PharmaDesk\pharmadesk-node.exe")) { throw 'not installed' }
+          $ok = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            try { $s = Invoke-RestMethod http://127.0.0.1:4317/local/status; if ($s.needsOwner) { $ok = $true; break } } catch {}
+            Start-Sleep 2
+          }
+          if (-not $ok) { Get-Content "$env:ProgramData\PharmaDesk\server.log" -ErrorAction SilentlyContinue; throw 'server did not start' }
+          $page = Invoke-WebRequest http://127.0.0.1:4317/ -UseBasicParsing
+          if ($page.Content -notmatch 'PharmaDesk') { throw 'app page missing' }
+          if (-not ((Get-Item "$env:ProgramData\PharmaDesk" -Force).Attributes -match 'Hidden')) { throw 'data folder not hidden' }
+          Write-Host 'Installed, server running, owner setup waiting.'
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: out/PharmaDesk-Setup.exe }
+
+  mac:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/download-artifact@v4
+        with: { name: app, path: pkg/app }
+      - name: Make installer
+        run: bash installer/mac/build-mac.sh pkg/app out
+      - name: Test-install it like a shop would
+        run: |
+          cp out/PharmaDesk-Mac.pkg "$RUNNER_TEMP/PharmaDesk-Mac.pkg"
+          sudo installer -pkg "$RUNNER_TEMP/PharmaDesk-Mac.pkg" -target /
+          lipo -archs /Applications/PharmaDesk.app/Contents/Resources/node
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:4317/local/status && break; sleep 2; done || true
+          if ! curl -fs http://127.0.0.1:4317/api/hello; then
+            PHARMADESK_OPEN=0 /Applications/PharmaDesk.app/Contents/MacOS/PharmaDesk &
+            for i in $(seq 1 20); do curl -fs http://127.0.0.1:4317/api/hello && break; sleep 2; done
+          fi
+          curl -fs http://127.0.0.1:4317/local/status | grep -q '"needsOwner":true'
+          curl -fs http://127.0.0.1:4317/ | grep -q PharmaDesk
+          echo 'Installed, server running, owner setup waiting.'
+      - uses: actions/upload-artifact@v4
+        with: { name: mac, path: out/PharmaDesk-Mac.pkg }
+
+  deploy:
+    needs: [build, windows, mac]
     runs-on: ubuntu-latest
     environment: { name: github-pages, url: '${{ steps.d.outputs.page_url }}' }
     steps:
+      - uses: actions/download-artifact@v4
+        with: { path: got }
+      - run: |
+          mkdir site && cp -R got/app/dist/. site/
+          cp got/windows/PharmaDesk-Setup.exe got/mac/PharmaDesk-Mac.pkg site/
+          ls -la site
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
       - id: d
         uses: actions/deploy-pages@v4

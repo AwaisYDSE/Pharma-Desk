@@ -273,6 +273,13 @@ for (const [v, vt] of Object.entries(VERB)) for (const [n, nt] of Object.entries
   P5[`${v} ${n} "{0}"`] = [`${nt[0]} "{0}" ${vt[0]}`, `${vt[1]} ${nt[1]} "{0}"`, `${nt[2]} "{0}" ${vt[2]}`, `${vt[3]} ${nt[3]} "{0}"`];
 }
 Object.assign(P5, {
+  'Download for Windows': ['ونڈوز کے لیے ڈاؤن لوڈ کریں', 'تنزيل لويندوز', 'विंडोज़ के लिए डाउनलोड करें', 'Descargar para Windows'],
+  'Download for Mac': ['میک کے لیے ڈاؤن لوڈ کریں', 'تنزيل لماك', 'मैक के लिए डाउनलोड करें', 'Descargar para Mac'],
+  'Open the downloaded file. The owner setup opens by itself.': ['ڈاؤن لوڈ کی گئی فائل کھولیں۔ مالک کا سیٹ اپ خود کھل جائے گا۔', 'افتح الملف الذي نزّلته. سيفتح إعداد المالك تلقائيًا.', 'डाउनलोड की गई फ़ाइल खोलें। मालिक का सेटअप अपने-आप खुलेगा।', 'Abra el archivo descargado. La configuración del propietario se abre sola.'],
+  'If your Mac blocks it: System Settings → Privacy & Security → Open Anyway.': ['اگر میک روکے: System Settings → Privacy & Security → Open Anyway۔', 'إذا منعه جهاز ماك: System Settings ← Privacy & Security ← Open Anyway.', 'अगर मैक रोके: System Settings → Privacy & Security → Open Anyway।', 'Si su Mac lo bloquea: Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente.'],
+  'If Windows warns: More info → Run anyway.': ['اگر ونڈوز خبردار کرے: More info → Run anyway۔', 'إذا حذّر ويندوز: More info ← Run anyway.', 'अगर विंडोज़ चेतावनी दे: More info → Run anyway।', 'Si Windows avisa: Más información → Ejecutar de todas formas.'],
+  'Already installed? Open PharmaDesk': ['پہلے سے انسٹال ہے؟ فارما ڈیسک کھولیں', 'مثبّت بالفعل؟ افتح فارما ديسك', 'पहले से इंस्टॉल है? फार्माडेस्क खोलें', '¿Ya instalado? Abrir PharmaDesk'],
+  "Keeps all the shop's data. Phones connect to it.": ['دکان کا سارا ڈیٹا اسی میں رہتا ہے۔ فون اس سے جڑتے ہیں۔', 'يحفظ كل بيانات الصيدلية. تتصل به الهواتف.', 'दुकान का सारा डेटा इसी में रहता है। फ़ोन इससे जुड़ते हैं।', 'Guarda todos los datos de la farmacia. Los teléfonos se conectan a él.'],
   'Delete {0}? Its past sales and purchases stay in history. Built-in medicines cannot be re-imported later.': ['{0} حذف کریں؟ اس کی پچھلی فروخت اور خریداری ریکارڈ میں رہے گی۔ پہلے سے بنی ادویات بعد میں دوبارہ شامل نہیں کی جا سکتیں۔', 'حذف {0}؟ تبقى مبيعاته ومشترياته السابقة في السجل. لا يمكن استيراد الأدوية المدمجة لاحقًا مرة أخرى.', '{0} हटाएँ? इसकी पिछली बिक्री और खरीद रिकॉर्ड में रहेगी। पहले से बनी दवाएँ बाद में दोबारा नहीं जोड़ी जा सकतीं।', '¿Eliminar {0}? Sus ventas y compras anteriores se conservan. Los medicamentos incluidos no se pueden volver a importar.'],
   '{0} deleted': ['{0} حذف ہو گئی', 'حُذف {0}', '{0} हटा दी गई', '{0} eliminado'],
   'Paid ({0})': ['ادا شدہ ({0})', 'مدفوع ({0})', 'भुगतान ({0})', 'Pagado ({0})'],

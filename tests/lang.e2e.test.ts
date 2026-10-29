@@ -92,7 +92,7 @@ describe('Language switching in a real browser', () => {
     await pc.goto(plainUrl);
     await pc.locator('text=Use this PC as the server').first().waitFor({ state: 'visible', timeout: 15000 });
     await pc.click('text=Use this PC as the server');
-    await pc.locator('a:has-text("Download PharmaDesk for Windows")').first().waitFor({ state: 'visible', timeout: 5000 });
+    await pc.locator('a:has-text("Download for Windows")').first().waitFor({ state: 'visible', timeout: 5000 });
     await pc.close();
     const ctx = await browser.newContext({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36', viewport: { width: 400, height: 860 } });
     const phone = await ctx.newPage();

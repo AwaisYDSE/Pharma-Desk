@@ -111,19 +111,18 @@ function decodeCode(text: string) {
 /** Phones, tablets and iPads are never the server. */
 export const isPhone = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 
-/** How to make a Windows PC the shop server. */
+/** Download the installer for this PC. Installing opens the owner setup by itself. */
+const SITE = 'https://awaisydse.github.io/Pharma-Desk/';
 function ServerSteps() {
-  const steps = [
-    'Download PharmaDesk for Windows on the PC that will be the server.',
-    'Unzip it and double-click "Start PharmaDesk Server".',
-    'PharmaDesk opens on that PC by itself: create the owner, add your logo and choose the medicine list.',
-    'On phones and other PCs open this same link, tap "Scan QR" and scan the QR shown in Settings on the server PC.',
-  ];
+  const mac = /Mac/i.test(navigator.platform || navigator.userAgent);
+  const [got, setGot] = useState(false);
   return (
     <motion.div className="col" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} style={{ gap: 8, padding: 14, borderRadius: 16, background: 'rgba(45,212,191,.08)', border: '1px solid rgba(45,212,191,.35)' }}>
-      <ol style={{ margin: 0, paddingInlineStart: 20, display: 'grid', gap: 6, fontSize: 13, color: '#CBD5E1' }}>{steps.map(x => <li key={x}>{x}</li>)}</ol>
-      <a className="btn primary" href="https://awaisydse.github.io/Pharma-Desk/PharmaDesk-Windows.zip" download><Icon name="download" /> Download PharmaDesk for Windows</a>
-      <span style={{ fontSize: 12, color: '#94A3B8' }}>Windows 10 or 11. The server PC also works as a normal counter. Keep it switched on during shop hours.</span>
+      <a className="btn primary" href={SITE + (mac ? 'PharmaDesk-Mac.pkg' : 'PharmaDesk-Setup.exe')} download onClick={() => setGot(true)}>
+        <Icon name="download" /> {mac ? 'Download for Mac' : 'Download for Windows'}</a>
+      {got && <span style={{ fontSize: 13, color: '#CBD5E1' }}>Open the downloaded file. The owner setup opens by itself.</span>}
+      {got && <span style={{ fontSize: 12, color: '#94A3B8' }}>{mac ? 'If your Mac blocks it: System Settings → Privacy & Security → Open Anyway.' : 'If Windows warns: More info → Run anyway.'}</span>}
+      <a className="small" style={{ color: '#5EEAD4', textAlign: 'center' }} href="http://localhost:4317/">Already installed? Open PharmaDesk</a>
     </motion.div>
   );
 }
@@ -173,7 +172,7 @@ export function PairScreen({ onPaired }: { onPaired: () => void }) {
         {!isPhone() && !onServer && (
           <button type="button" className="btn" onClick={() => setServerInfo(v => !v)} style={{ flexDirection: 'column', alignItems: 'flex-start', minHeight: 64, padding: '10px 14px', textAlign: 'start', whiteSpace: 'normal' }}>
             <strong><Icon name="server" size={16} /> Use this PC as the server</strong>
-            <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>Only a Windows PC can be the shop server. It keeps all the shop's data; phones and other PCs connect to it.</span>
+            <span style={{ fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>Keeps all the shop's data. Phones connect to it.</span>
           </button>)}
         {serverInfo && !isPhone() && !onServer && <ServerSteps />}
         <div className="row" style={{ gap: 8, color: '#94A3B8', fontSize: 12 }}><span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,.12)' }} />or connect to your shop's server PC<span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,.12)' }} /></div>

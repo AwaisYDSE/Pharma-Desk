@@ -1,0 +1,29 @@
+#!/bin/bash
+# Start PharmaDesk now and every time this Mac starts, open the owner setup,
+# and remove the downloaded installer from Downloads.
+PKG="$1"
+USER_NAME="$(stat -f%Su /dev/console)"
+[ -z "$USER_NAME" ] || [ "$USER_NAME" = "root" ] && exit 0
+USER_ID="$(id -u "$USER_NAME")"
+HOME_DIR="$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory | awk '{print $2}')"
+AGENT="$HOME_DIR/Library/LaunchAgents/pk.pharmadesk.server.plist"
+mkdir -p "$HOME_DIR/Library/LaunchAgents"
+cat > "$AGENT" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>pk.pharmadesk.server</string>
+  <key>ProgramArguments</key><array><string>/Applications/PharmaDesk.app/Contents/MacOS/PharmaDesk</string></array>
+  <key>EnvironmentVariables</key><dict><key>PHARMADESK_OPEN</key><string>0</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+</dict></plist>
+PLIST
+chown "$USER_NAME" "$AGENT"
+launchctl bootout "gui/$USER_ID/pk.pharmadesk.server" 2>/dev/null
+launchctl bootstrap "gui/$USER_ID" "$AGENT" 2>/dev/null
+# Open the owner setup once the server answers.
+( for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:4317/api/hello && break; sleep 1; done
+  launchctl asuser "$USER_ID" sudo -u "$USER_NAME" open "http://localhost:4317" ) >/dev/null 2>&1 &
+case "$PKG" in */Downloads/*) ( sleep 15; rm -f "$PKG" ) >/dev/null 2>&1 & ;; esac
+exit 0

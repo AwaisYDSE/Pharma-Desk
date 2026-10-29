@@ -38,7 +38,7 @@ function sourceSentences(): string[] {
 }
 
 // Brand names, units and technical words that stay as they are in every language.
-const KEEP = /^(PharmaDesk|Rs|\(Rs\)|PDF|CSV|A4|58mm|80mm|FEFO|\(FEFO\)|SOFTWARE|Tailscale:|Cloudflare:|My Medical Store|Pharmacy Software by Awais Amin|Awais Amin · github\.com\/\S+|Gemini|NTN|STRN|CNIC|· NTN \{0\}|\{0\} "\{1\}" for \{2\}|Today's sales \{0\}\{1\}, \{2\} bills\{3\}\.|ArrowUp|ArrowDown|Enter|Escape|F\d|F6 Rx \(AI\)|k|items|Tab\. Augmentin .*|Dr\.|Bearer \{0\}|Delete \{0\}\? Its past sales and purchases stay in history\.\{1\})$/;
+const KEEP = /^(PharmaDesk|PharmaDesk-Mac\.pkg|PharmaDesk-Setup\.exe|Rs|\(Rs\)|PDF|CSV|A4|58mm|80mm|FEFO|\(FEFO\)|SOFTWARE|Tailscale:|Cloudflare:|My Medical Store|Pharmacy Software by Awais Amin|Awais Amin · github\.com\/\S+|Gemini|NTN|STRN|CNIC|· NTN \{0\}|\{0\} "\{1\}" for \{2\}|Today's sales \{0\}\{1\}, \{2\} bills\{3\}\.|ArrowUp|ArrowDown|Enter|Escape|F\d|F6 Rx \(AI\)|k|items|Tab\. Augmentin .*|Dr\.|Bearer \{0\}|Delete \{0\}\? Its past sales and purchases stay in history\.\{1\})$/;
 const CODEY = /^(btn|badge|card|row|col|grid|small|muted|num|input|kbd|faint|big|v num|pin-boxes|nav-item|modal|toast|side|result|id,|\+\+seq|M\d|ecg|'Noto|\(prefers)/;
 
 describe('Languages are complete', () => {

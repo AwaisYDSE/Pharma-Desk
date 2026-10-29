@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stop a running copy before upgrading.
+pkill -f "PharmaDesk.app/Contents/Resources/server/server.mjs" 2>/dev/null
+exit 0

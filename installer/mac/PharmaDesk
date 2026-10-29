@@ -1,0 +1,7 @@
+#!/bin/bash
+# Opens PharmaDesk: starts the server if it is not running, then shows it in the browser.
+RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
+export PHARMADESK_DATA="$HOME/Library/Application Support/PharmaDesk"
+export PHARMADESK_OPEN="${PHARMADESK_OPEN:-1}"
+mkdir -p "$PHARMADESK_DATA"
+exec "$RES/node" --no-warnings "$RES/server/server.mjs" >> "$PHARMADESK_DATA/server-output.log" 2>&1

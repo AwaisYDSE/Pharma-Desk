@@ -3,6 +3,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { exec } from 'node:child_process';
+import fs from 'node:fs';
 import { openWithRecovery, snapshot } from './db.ts';
 import { ensureIdentity, getIdentity } from './identity.ts';
 import { createApp } from './app.ts';
@@ -13,7 +14,17 @@ const PORT = Number(process.env.PORT || 4317);
 const DATA = process.env.PHARMADESK_DATA || path.join(os.homedir(), 'PharmaDesk');
 const DB_FILE = path.join(DATA, 'pharmadesk.db');
 const BACKUPS = path.join(DATA, 'backups');
-const log = (m: string) => console.log(`[${new Date().toLocaleTimeString()}] ${m}`);
+// Log to the screen and to a file in the data folder (the installed server runs without a window).
+fs.mkdirSync(DATA, { recursive: true });
+const LOG_FILE = path.join(DATA, 'server.log');
+const log = (m: string) => {
+  const line = `[${new Date().toLocaleString()}] ${m}`;
+  console.log(line);
+  try {
+    if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 2_000_000) fs.renameSync(LOG_FILE, LOG_FILE + '.old');
+    fs.appendFileSync(LOG_FILE, line + '\n');
+  } catch { /* logging must never stop the server */ }
+};
 
 /** Opens PharmaDesk in the PC's browser (only after the server is ready, so the page never fails to load). */
 function openBrowser(url: string) {
