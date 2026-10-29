@@ -67,8 +67,9 @@ jobs:
             Write-Host 'Installed, server started, owner setup waiting.'
           } finally {
             Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-            taskkill /f /im pharmadesk-node.exe 2>$null
+            Get-Process pharmadesk-node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           }
+          exit 0
       - uses: actions/upload-artifact@v4
         with: { name: windows, path: out/PharmaDesk-Setup.exe }
 
