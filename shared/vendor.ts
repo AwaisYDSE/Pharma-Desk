@@ -6,12 +6,12 @@ export const VENDOR: { name: string; publicKey: string; requireLicense: boolean;
   // Your name/brand shown on the licence screen.
   name: 'Awais Amin',
   // Public half of your signing key (Vendor app → Setup). Empty = licensing off.
-  publicKey: '',
+  publicKey: '6qy0_OCV3gxIrTQqMnCqriq3IVQcuui5iBB4HEY_2IA',
   // When true, a shop cannot finish setup without a valid key you issued.
-  requireLicense: false,
+  requireLicense: true,
   // Your dashboard API base, e.g. 'https://pharmadesk-admin.YOURNAME.workers.dev'.
   // Empty = no phone-home, no remote suspend, no remote support. Offline licences still work.
-  vendorApi: '',
+  vendorApi: 'https://pharmadesk-admin.awaisamindpw.workers.dev',
   // The public web app (a fixed address, so phones keep their data). Phones open it from the QR.
   appUrl: 'https://awaisydse.github.io/Pharma-Desk/',
   // How often (minutes) a licensed shop checks in when it has internet.

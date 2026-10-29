@@ -86,3 +86,12 @@ describe('Default build is unlicensed and unchanged', () => {
     expect(serverStock(S.db, med.id)).toBe(45);
   });
 });
+
+describe('Shipped build', () => {
+  it('requires a licence key signed by the vendor key and reports to the vendor dashboard', async () => {
+    const { SHIPPED } = await import('./setup.ts');
+    expect(SHIPPED.requireLicense).toBe(true);
+    expect(Buffer.from(SHIPPED.publicKey, 'base64url').length).toBe(32);
+    expect(SHIPPED.vendorApi).toMatch(/^https:\/\/pharmadesk-admin\.[\w-]+\.workers\.dev$/);
+  });
+});
