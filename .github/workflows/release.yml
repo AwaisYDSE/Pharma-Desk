@@ -1,0 +1,23 @@
+# Tag a version (e.g. v1.1.0) → builds the Windows server package and attaches
+# PharmaDesk-Windows.zip to a GitHub Release for pharmacies to download.
+name: Windows release
+on:
+  push: { tags: ['v*'] }
+  workflow_dispatch:
+permissions: { contents: write }
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run build:server
+      - run: cd release && zip -qr ../PharmaDesk-Windows.zip PharmaDesk
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: PharmaDesk-Windows.zip
+          body: |
+            **PharmaDesk** — pharmacy management. Developed by **Awais Amin**.
+            Unzip on the main shop PC and double-click "Start PharmaDesk Server". Phones: open https://awaisydse.github.io/Pharma-Desk/
