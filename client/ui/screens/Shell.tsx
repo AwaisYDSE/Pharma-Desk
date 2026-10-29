@@ -70,6 +70,7 @@ export function Shell({ route, go, children }: { route: string; go: (r: string) 
           </button>
           <button type="button" className="btn sm" onClick={() => logout()}><Icon name="logout" size={16} /><span className="hide-sm">{t('logout')}</span></button>
         </header>
+        {shop?.planLock && <PlanBanner lock={shop.planLock} />}
         {shop?.supportAccess && <div className="support-banner" role="status"><Icon name="shield" size={16} /> <span>Support access is ON — the developer can connect to help this shop. The owner can turn it off in Settings.</span></div>}
         <AnimatePresence mode="wait">
           <motion.main key={route} className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .18 }}>
@@ -119,3 +120,41 @@ function MyProfile({ onClose }: { onClose: () => void }) {
     </Modal>
   );
 }
+
+/** Plan paused or ended: shown on every device. Billing is off; everything else can still be viewed. */
+function PlanBanner({ lock }: { lock: { status: string; message?: string | null; vendor: string } }) {
+  const { isServerPc, user, sync, toast } = useStore();
+  const [renew, setRenew] = useState(false), [key, setKey] = useState(''), [busy, setBusy] = useState(false);
+  const paused = lock.status === 'suspended';
+  const again = async () => {
+    setBusy(true);
+    try { await fetch('/local/checkin-now', { method: 'POST' }); await sync.syncNow().catch(() => {}); toast('ok', 'Checked'); } catch { toast('bad', 'No internet — try again later'); }
+    setBusy(false);
+  };
+  const activate = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch('/local/activate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: key.trim() }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.license?.locked) throw new Error(d.message || 'That key is not valid or has expired');
+      await sync.syncNow().catch(() => {}); setRenew(false); toast('ok', 'Plan renewed — billing is on');
+    } catch (e) { toast('bad', (e as Error).message); }
+    setBusy(false);
+  };
+  return (
+    <div className="plan-banner" role="alert">
+      <Icon name="warn" size={18} />
+      <span><strong>{paused ? 'Plan paused — billing is off.' : 'Plan ended — billing is off.'}</strong> {lock.message && paused ? <span data-no-tr>{lock.message} </span> : null}<span>You can still view everything. Contact the developer:</span> <span data-no-tr>awaisdpw.co@gmail.com</span></span>
+      <span className="spacer" />
+      {isServerPc && user?.owner && <>
+        {paused ? <button type="button" className="btn sm" disabled={busy} onClick={again}>Check again</button>
+          : <button type="button" className="btn sm primary" onClick={() => setRenew(true)}>Enter renewal key</button>}
+      </>}
+      {renew && <Modal title="Enter renewal key" onClose={() => setRenew(false)}>
+        <label className="field">Licence key<input className="input" autoFocus value={key} onChange={e => setKey(e.target.value)} placeholder="PD1.…" autoCapitalize="none" spellCheck={false} /></label>
+        <div className="form-actions"><button type="button" className="btn" onClick={() => setRenew(false)}>Cancel</button><button type="button" className="btn primary" disabled={busy || key.trim().length < 20} onClick={activate}>Renew</button></div>
+      </Modal>}
+    </div>
+  );
+}
+

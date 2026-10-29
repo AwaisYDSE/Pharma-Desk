@@ -14,8 +14,8 @@ export const VENDOR: { name: string; publicKey: string; requireLicense: boolean;
   vendorApi: 'https://pharmadesk-admin.awaisamindpw.workers.dev',
   // The public web app (a fixed address, so phones keep their data). Phones open it from the QR.
   appUrl: 'https://awaisydse.github.io/Pharma-Desk/',
-  // How often (minutes) a licensed shop checks in when it has internet.
-  checkinMinutes: 360,
+  // How often (minutes) a licensed shop checks in when it has internet (pause/resume takes effect within this time).
+  checkinMinutes: 60,
 };
 
 export function licensingOn(): boolean {

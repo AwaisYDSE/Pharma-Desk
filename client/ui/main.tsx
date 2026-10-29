@@ -56,7 +56,8 @@ function App() {
   if (splash) return <Splash onDone={endSplash} />;
   if (needsOwner === null) return null;
   // Licensed build on the server PC: must have a valid key before anything else.
-  if (license?.on && (license.needsKey || license.locked)) return <LicenseGate info={license} onActivated={() => location.reload()} />;
+  // (A paused or ended plan does not block the app — it opens read-only, with billing off.)
+  if (license?.on && license.needsKey) return <LicenseGate info={license} onActivated={() => location.reload()} />;
   if (needsOwner) return <OwnerSetup onDone={() => location.reload()} />;
   if (choosing === 'standalone' && !ctx.pairing && !ctx.standalone) return <OwnerSetup standalone onBack={() => setChoosing(null)} onDone={() => { setChoosing(null); setPaired(n => n + 1); }} />;
   if (!ctx.pairing && !ctx.standalone) return <PairScreen onPaired={() => setPaired(n => n + 1)} />;

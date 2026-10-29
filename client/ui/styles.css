@@ -193,3 +193,6 @@ td.num, th.num, .num { white-space: nowrap; }
 @media (max-width: 640px) { .form-grid, .form-grid.two { grid-template-columns: 1fr 1fr; } .line-card { padding: 12px; } }
 
 .support-banner { display: flex; align-items: center; gap: 8px; padding: 8px 22px; font-size: 13px; font-weight: 600; background: color-mix(in srgb, var(--warn) 16%, var(--bg2)); color: var(--text); border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
+
+.plan-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 22px; font-size: 13px; background: color-mix(in srgb, var(--bad, #EF4444) 16%, var(--bg2)); border-bottom: 1px solid color-mix(in srgb, var(--bad, #EF4444) 45%, transparent); color: var(--text); }
+.plan-banner > svg { color: var(--bad, #EF4444); flex-shrink: 0; }

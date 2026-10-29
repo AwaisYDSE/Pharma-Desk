@@ -125,6 +125,8 @@ export interface Payment { method: Invoice['payMethod']; paid: number }
 export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: ServerClient | null, opts: { supervisorId?: string } = {}): Promise<{ invoice: Invoice; offline: boolean; result?: OpResult }> {
   if (!ctx.user || !can(ctx.user, 'pos')) throw new PermissionError();
   if (!cart.lines.length) throw new AppError('EMPTY', 'The bill is empty');
+  const shopRow = await ctx.db.shop.get('shop');
+  if (shopRow?.planLock) throw new AppError('LICENSE_LOCKED', shopRow.planLock.status === 'suspended' ? 'The plan is paused, so billing is off. Please contact the developer.' : 'The plan has ended, so billing is off. Please renew.');
   const t = totals(cart);
   const discounted = cart.billDiscount > 0 || cart.lines.some(l => l.discountBp > 0);
   if (discounted && !can(ctx.user, 'pos.discount') && !opts.supervisorId) throw new OverrideRequiredError('pos.discount', 'Discounts need a supervisor PIN');

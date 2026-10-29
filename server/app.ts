@@ -5,7 +5,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import path from 'node:path';
 import fs from 'node:fs';
 import type { DB } from './db.ts';
-import { getRow, allRows, putRow, tx } from './db.ts';
+import { getRow, allRows, putRow, tx, getSetting } from './db.ts';
 import {
   ensureIdentity, getIdentity, pairDevice, requireDevice, PairLimiter, clientIp, isLocalRequest,
   rotatePin, resetPairings, renameServer, blockedToday, type DeviceClaims,
@@ -18,10 +18,11 @@ import { pairingPayload, pairingQr, type Endpoints } from './tunnel.ts';
 import { can } from '../shared/permissions.ts';
 import { licensingOn } from '../shared/vendor.ts';
 import { licenseState, activateLicense, installId } from './license.ts';
-import { setSupportAccess, supportOn } from './vendor-link.ts';
+import { newRecoveryCode, pcCode, resetOwnerPin } from './owner-reset.ts';
+import { setSupportAccess, supportOn, checkIn } from './vendor-link.ts';
 import { VENDOR } from '../shared/vendor.ts';
 import { AppError } from '../shared/util.ts';
-import type { Op, User, Medicine, Batch, Invoice, InvoiceItem } from '../shared/types.ts';
+import type { Op, User, Medicine, Batch, Invoice, InvoiceItem, Shop } from '../shared/types.ts';
 import { isoDate, addDays, daysBetween } from '../shared/util.ts';
 
 type Req = Request & { device?: DeviceClaims; user?: User; sessionId?: string };
@@ -52,7 +53,19 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   // Licensing lock, kept in memory and refreshed so each request check is instant.
   // Off entirely unless the vendor enabled it in shared/vendor.ts.
   const LOCK = { locked: false, needsKey: false };
-  const refreshLock = async () => { try { const s = await licenseState(db); LOCK.locked = s.locked; LOCK.needsKey = s.needsKey; } catch { /* keep last */ } };
+  const refreshLock = async () => {
+    try {
+      const s = await licenseState(db); LOCK.locked = s.locked; LOCK.needsKey = s.needsKey;
+      // Tell every device (through the synced shop record) whether billing is off, and why.
+      const shop = getRow<Shop>(db, 'shop', 'shop');
+      if (shop) {
+        const want = s.locked && !s.needsKey ? { status: s.status, message: getSetting(db, 'vendor_message'), vendor: VENDOR.name } : null;
+        if (JSON.stringify(shop.planLock || null) !== JSON.stringify(want)) putRow(db, 'shop', { ...shop, planLock: want } as Shop, serverClock.tick());
+      }
+    } catch { /* keep last */ }
+  };
+  /** Ask the vendor dashboard now (after activating, or when the owner taps "Check again"). */
+  const checkInNow = async () => { await checkIn(db, { endpoints: opts.endpoints, version: opts.version }).catch(() => null); await refreshLock(); };
   if (licensingOn()) { void refreshLock(); setInterval(refreshLock, 60_000).unref?.(); }
   const requireUnlocked = () => { if (LOCK.locked) throw new AppError('LICENSE_LOCKED', 'This copy is not licensed or the plan has ended. Please renew with the vendor.'); };
   app.disable('x-powered-by');
@@ -103,6 +116,7 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     const token = String(req.body?.token || '');
     const st = await activateLicense(db, token);
     await refreshLock();
+    void checkInNow(); // show up in the vendor dashboard straight away
     return { status: st.state, license: await licenseState(db) };
   }));
   app.post('/local/setup-owner', localOnly, wrap(req => {
@@ -112,8 +126,13 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     const owner = sup.createOwner(db, { name, username, pin, email, photo: img(photo) });
     if (shopName) renameServer(db, String(shopName).slice(0, 80));
     const added = setupShop(db, String(shopName || 'My Pharmacy').slice(0, 80), catalog === 'builtin' ? 'builtin' : 'own', owner, img(logo, 600_000));
-    return { ok: true, userId: owner.id, medicines: added };
+    void checkInNow();
+    return { ok: true, userId: owner.id, medicines: added, recoveryCode: newRecoveryCode(db) };
   }));
+  app.post('/local/checkin-now', localOnly, wrap(async () => { await checkInNow(); return { license: await licenseState(db) }; }));
+  /** Forgot the owner PIN — only on the server PC itself. */
+  app.get('/local/owner-reset', localOnly, wrap(() => ({ pcCode: pcCode(db), hasRecovery: !!getSetting(db, 'owner_recovery'), vendor: VENDOR.name, vendorReset: !!VENDOR.publicKey })));
+  app.post('/local/owner-reset', localOnly, wrap(req => resetOwnerPin(db, { method: req.body?.method === 'vendor' ? 'vendor' : 'recovery', code: String(req.body?.code || ''), pin: String(req.body?.pin || '') })));
   /** The server PC is also a till: it pairs itself without typing the PIN. */
   app.post('/local/self-pair', localOnly, wrap(() => {
     const id = getIdentity(db)!;
@@ -204,6 +223,10 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   }));
   app.get('/api/settings/ai', session(), wrap(() => ({ hasKey: ai.hasGeminiKey(db), provider: ai.keyProvider(db) })));
   // Vendor support access: only the owner can switch it; it is shown on every device and logged.
+  app.post('/api/settings/recovery', session(), wrap(req => {
+    if (!(req.user as { owner?: boolean }).owner) throw new AppError('FORBIDDEN', 'Only the owner can make a recovery code');
+    return { code: newRecoveryCode(db) };
+  }));
   app.get('/api/settings/support', session(), wrap(() => ({ on: supportOn(db), available: !!VENDOR.vendorApi && licensingOn(), vendor: VENDOR.name })));
   app.post('/api/settings/support', session(), wrap(req => setSupportAccess(db, req.user!, !!req.body?.on)));
 

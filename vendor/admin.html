@@ -113,6 +113,12 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
       <div class="key" id="r-key"></div>
       <p class="note">Send this key to the pharmacy. They paste it on the licence screen the first time PharmaDesk opens.</p>
     </div>
+    <form class="box" id="reset">
+      <h2>Owner forgot the PIN</h2>
+      <p class="note">The owner taps "Forgot PIN?" → "Reset key from the developer" on the shop's server PC and reads you the PC code. Make a reset key and send it to them. It works once, only on that PC, for 2 days.</p>
+      <div class="row"><input id="rs-pc" required maxlength="20" placeholder="PC code, e.g. ABCD-EFGH-JK" style="flex:1 1 220px;text-transform:uppercase"><button class="btn primary" id="b-reset">Make reset key</button></div>
+      <div id="rs-out" hidden class="panel" style="gap:10px"><div class="key" id="rs-key"></div><div class="row"><button class="btn primary sm" type="button" id="b-copyreset">Copy reset key</button><span class="note">Expires in 2 days.</span></div></div>
+    </form>
     <div class="box">
       <div class="row"><h2>Keys made on this device</h2><span class="spacer"></span><input id="h-q" placeholder="Search" style="max-width:220px"></div>
       <div class="tw"><table><thead><tr><th>Pharmacy</th><th>Plan</th><th>Made</th><th>Expires</th><th></th></tr></thead><tbody id="hist"></tbody></table></div>
@@ -269,6 +275,15 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
     const h = store.get('history', []); h.unshift({ ...payload, token }); store.set('history', h.slice(0, 500));
     renderHist(); $('#result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
+  $('#reset').onsubmit = async e => {
+    e.preventDefault(); const k = keys(); if (!k) return show('setup');
+    const pc = $('#rs-pc').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (pc.length !== 10) return toast('The PC code has 10 letters and numbers');
+    const payload = { k: 'owner-reset', pc: pc.match(/.{1,4}/g).join('-'), nonce: Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join(''), exp: new Date(Date.now() + 2 * 864e5).toISOString() };
+    const body = utf8b64u(JSON.stringify(payload));
+    $('#rs-key').textContent = `PDR.${body}.${b64u(await sign(k, body))}`; $('#rs-out').hidden = false;
+  };
+  $('#b-copyreset').onclick = () => copy($('#rs-key').textContent, $('#rs-key'));
   $('#b-copykey').onclick = () => copy($('#r-key').textContent, $('#r-key'));
   function renderHist() {
     const q = $('#h-q').value.toLowerCase(); const h = store.get('history', []).filter(x => !q || x.shop.toLowerCase().includes(q) || x.id.toLowerCase().includes(q));

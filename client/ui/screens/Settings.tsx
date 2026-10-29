@@ -63,6 +63,7 @@ export function Settings() {
             </form>{saveAi.err && <span className="err">{saveAi.err}</span>}
             <p className="small faint" style={{ margin: 0 }}>Without a key, or when the AI limit is used up, PharmaDesk uses its built-in offline reader and interaction list — billing never stops.</p>
           </section>}
+          {user?.owner && <RecoveryCard />}
           {user?.owner && <SupportCard />}
           <section className="card col"><h2>This device</h2>
             {ctx.standalone
@@ -77,6 +78,24 @@ export function Settings() {
         </div>
       </div>
     </>
+  );
+}
+
+/** Owner only: make a new recovery code for a forgotten owner PIN (the old one stops working). */
+function RecoveryCard() {
+  const { client, online, toast } = useStore();
+  const [code, setCode] = useState<string | null>(null);
+  const make = async () => {
+    if (!(await confirmAsk({ title: 'New recovery code', message: 'Make a new recovery code? The old code will stop working.', confirmText: 'Make new code' }))) return;
+    try { setCode((await client.request<{ code: string }>('POST', '/api/settings/recovery', {})).code); } catch (e) { toast('bad', (e as Error).message); }
+  };
+  return (
+    <section className="card col"><h2><Icon name="key" /> Owner PIN recovery</h2>
+      <p className="small muted" style={{ margin: 0 }}>If you forget the owner PIN, tap "Forgot PIN?" on the login screen of the server PC and type your recovery code. You can also ask the developer for a one-time reset key.</p>
+      {code ? <><div data-no-tr className="num" style={{ fontSize: 22, fontWeight: 800, letterSpacing: '.08em', textAlign: 'center', padding: 12, borderRadius: 12, border: '2px dashed var(--accent, #2DD4BF)', userSelect: 'all' }}>{code}</div>
+        <p className="small" style={{ margin: 0 }}>Save this code now. It is shown only once.</p></>
+        : <button type="button" className="btn" disabled={!online} onClick={make}>Make a new recovery code</button>}
+    </section>
   );
 }
 

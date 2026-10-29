@@ -65,6 +65,8 @@ export interface Shop extends Synced {
   receiptFooter?: string; catalogChoice?: 'builtin' | 'own';
   /** The owner switched on support access for the vendor — shown on every device. */
   supportAccess?: boolean;
+  /** Set by the server when the plan is paused or has ended: billing is off on every device. */
+  planLock?: { status: string; message?: string | null; vendor: string } | null;
 }
 export interface AuditEntry extends Synced {
   at: string; userId: string | null; userName?: string | null; deviceId?: string; action: string;
