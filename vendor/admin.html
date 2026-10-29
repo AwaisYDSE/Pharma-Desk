@@ -131,7 +131,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
       <div class="row"><button class="btn primary">Show shops</button><span class="note" id="c-msg"></span></div>
     </form>
     <div class="tiles" id="tiles"></div>
-    <div class="row"><input id="s-q" placeholder="Search pharmacy, city or phone" style="max-width:340px"><select id="s-f" style="max-width:200px"><option value="all">All shops</option><option value="active">Active</option><option value="paused">Paused</option><option value="expiring">Expiring in 30 days</option><option value="stale">Not seen for 3 days</option><option value="support">Support access ON</option></select><span class="spacer"></span><span class="example" id="s-ex" hidden>Example shops — connect to see yours</span></div>
+    <div class="row"><input id="s-q" placeholder="Search pharmacy, city or phone" style="max-width:340px"><select id="s-f" style="max-width:200px"><option value="all">All shops</option><option value="active">Active</option><option value="paused">Paused</option><option value="expiring">Expiring in 30 days</option><option value="stale">Not seen for 3 days</option><option value="support">Support access ON</option></select><span class="spacer"></span></div>
     <div class="shops" id="shops"></div>
   </section>
 
@@ -307,7 +307,6 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
     const act = list.filter(s => state(s) === 'active').length, paused = list.filter(s => s.suspended).length, exp = list.filter(s => s.expires && daysLeft(s.expires) <= 30).length;
     const sales = list.reduce((a, s) => a + ((s.stats || {}).sales7d || 0), 0);
     $('#tiles').innerHTML = [['Shops', list.length], ['Active', act], ['Paused', paused], ['Expiring ≤ 30 days', exp], ['Sales, 7 days (all)', rs(sales)]].map(([l, v]) => `<div class="tile"><span>${l}</span><b>${v}</b></div>`).join('');
-    $('#s-ex').hidden = !example;
     const q = $('#s-q').value.toLowerCase(), f = $('#s-f').value;
     const shown = list.filter(s => (!q || [s.shop, s.licensedTo, s.city, s.phone].join(' ').toLowerCase().includes(q))
       && (f === 'all' || (f === 'active' && state(s) === 'active') || (f === 'paused' && s.suspended) || (f === 'stale' && state(s) === 'stale') || (f === 'expiring' && s.expires && daysLeft(s.expires) <= 30) || (f === 'support' && s.support)))
@@ -358,13 +357,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
   }
   $('#s-q').oninput = renderShops; $('#s-f').onchange = renderShops;
 
-  // Example shops so the screen shows what it does before you connect.
-  const now = Date.now(), iso = ms => new Date(ms).toISOString();
-  shops = [
-    { installId: 'ex1', shop: 'Al-Shifa Pharmacy', licensedTo: 'Al-Shifa Pharmacy', plan: 'standard', expires: isoDay(new Date(now + 200 * 864e5)), phone: '0300-1234567', city: 'Main Bazar, Okara', version: '1.0.0', platform: 'win32', lastSeen: iso(now - 40 * 6e4), stats: { bills7d: 412, sales7d: 18650000, medicines: 1240, users: 4, devices: 3, patients: 380 }, suspended: false, support: null },
-    { installId: 'ex2', shop: 'City Care Chemist', licensedTo: 'City Care Chemist', plan: 'trial', expires: isoDay(new Date(now + 6 * 864e5)), phone: '0321-7654321', city: 'Lahore', version: '1.0.0', platform: 'darwin', lastSeen: iso(now - 5 * 36e5), stats: { bills7d: 96, sales7d: 3120000, medicines: 520, users: 2, devices: 1, patients: 64 }, suspended: false, support: { username: 'vendor-support', pin: '48213907', serverPin: '552901', url: 'https://example.trycloudflare.com', pairCode: 'pharmadesk:example' } },
-  ];
-  example = true;
+  shops = []; example = false;
 
   // ---------- start ----------
   renderKey(); renderHist(); renderShops();
