@@ -15,6 +15,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'pos.credit_sale', label: 'Credit (udhaar) sales' },
     { key: 'pos.override_fefo', label: 'Sell a newer batch instead of nearest-expiry' },
     { key: 'pos.negative_stock', label: 'Sell items not yet in stock' },
+    { key: 'pos.zero_price', label: 'Sell items at price 0 (free)' },
   ] },
   { key: 'invoices', label: 'Invoices', actions: [
     { key: 'invoices.view_all', label: "See other users' bills" },

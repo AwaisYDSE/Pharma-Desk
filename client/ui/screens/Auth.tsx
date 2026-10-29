@@ -100,6 +100,18 @@ export function OwnerSetup({ onDone, standalone, onBack }: { onDone: () => void;
   );
 }
 
+/** Support sign-in carried by an "Open this shop" link from the developer dashboard (kept only for this tab). */
+export const supportLogin = {
+  capture() {
+    try {
+      const h = new URLSearchParams(location.hash.slice(1));
+      if (h.get('u') && h.get('p')) sessionStorage.setItem('pd-support-login', JSON.stringify({ u: h.get('u'), p: h.get('p') }));
+    } catch { /* private mode */ }
+  },
+  peek(): { u: string; p: string } | null { try { return JSON.parse(sessionStorage.getItem('pd-support-login') || 'null'); } catch { return null; } },
+  clear() { try { sessionStorage.removeItem('pd-support-login'); } catch { /* */ } },
+};
+
 function decodeCode(text: string) {
   try {
     const m = text.match(/[#&?]pair=([^&\s]+)/);
@@ -140,10 +152,17 @@ export function PairScreen({ onPaired }: { onPaired: () => void }) {
   const [scanning, setScanning] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const qr = decodeCode(code);
+  // Opened from a link (QR, or "Open this shop" in the developer dashboard): fill in and connect by itself.
+  const auto = useRef(false);
   useEffect(() => {
-    const p = new URLSearchParams(location.hash.slice(1)).get('pair');
+    const h = new URLSearchParams(location.hash.slice(1));
+    const p = h.get('pair');
     if (p) setCode(p);
+    const sp = (h.get('pin') || '').replace(/\D/g, '');
+    if (sp.length === 6) { setPin(sp); auto.current = true; }
+    if (h.get('dev')) setName(h.get('dev')!.slice(0, 40));
   }, []);
+  useEffect(() => { if (auto.current && qr && pin.length === 6) { auto.current = false; void a.run(); } }, [qr, pin]); // eslint-disable-line
   useEffect(() => {
     if (!scanning) return;
     let stop = () => {};
@@ -163,7 +182,9 @@ export function PairScreen({ onPaired }: { onPaired: () => void }) {
       if (e instanceof NeedsLocalOpen) {
         // This secure page can't talk to the shop PC's Wi-Fi address — open PharmaDesk from the shop PC itself.
         const c = (code.match(/[#&?]pair=([^&\s]+)/)?.[1]) || encodeURIComponent(code.trim());
-        window.location.href = `${e.url.replace(/\/$/, '')}/#pair=${c}`;
+        const sl = supportLogin.peek();
+        const extra = sl ? `&pin=${pin}&u=${encodeURIComponent(sl.u)}&p=${encodeURIComponent(sl.p)}&dev=${encodeURIComponent(name)}` : '';
+        window.location.href = `${e.url.replace(/\/$/, '')}/#pair=${c}${extra}`;
         return;
       }
       throw new Error((e as { code?: string }).code === 'PIN_MISMATCH' ? PIN_MISMATCH_MESSAGE : (e as Error).message);
@@ -202,8 +223,9 @@ export function PairScreen({ onPaired }: { onPaired: () => void }) {
 
 export function LoginScreen() {
   const { ctx, client, t, setUser, online, sync } = useStore();
-  const [u, setU] = useState(''), [p, setP] = useState('');
+  const [u, setU] = useState(() => supportLogin.peek()?.u || ''), [p, setP] = useState(() => supportLogin.peek()?.p || '');
   const [forgot, setForgot] = useState(false);
+  const autoLogin = useRef(!!supportLogin.peek());
   const a = useAsync(async () => {
     // Just paired? Make sure this device has the users list before checking the PIN.
     if (!(await ctx.db.users.where('username').equals(u.trim().toLowerCase()).count())) await sync.syncNow().catch(() => {});
@@ -215,6 +237,7 @@ export function LoginScreen() {
       setUser(await login(ctx, u, p, client));
     }
   });
+  useEffect(() => { if (autoLogin.current) { autoLogin.current = false; supportLogin.clear(); void a.run(); } }, []); // eslint-disable-line
   if (forgot) return <ForgotPin onBack={() => setForgot(false)} onReset={async (name) => { await sync.syncNow().catch(() => {}); setU(name); setP(''); setForgot(false); }} />;
   return (
     <div className="auth"><FloatingPills />

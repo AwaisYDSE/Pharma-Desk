@@ -53,13 +53,24 @@ export function Pos() {
       const w = await addToCart(ctx, cart, m, qty, { allowNegative });
       refresh(); setQ(''); setSel(0);
       if (m.rxRequired) toast('info', m.name, 'Prescription medicine — check the prescription.');
-      const fefo = w.find(x => x.kind === 'fefo');
-      if (fefo) { toast('warn', 'FEFO', t('fefoWarn', { b: fefo.batchNo!, n: fefo.days! })); say('worried', t('fefoWarn', { b: fefo.batchNo!, n: fefo.days! })); }
+      const fefo = w.find(x => x.kind === 'fefo'), np = w.find(x => x.kind === 'noprice');
+      if (np) { toast('warn', 'No price', np.message); say('worried', np.message); }
+      else if (fefo) { toast('warn', 'FEFO', t('fefoWarn', { b: fefo.batchNo!, n: fefo.days! })); say('worried', t('fefoWarn', { b: fefo.batchNo!, n: fefo.days! })); }
       else say('happy', `${m.name} — ${lang === 'ur' ? 'شامل ہو گئی!' : 'added!'}`);
     } catch (e) {
       const err = e as { code?: string; message: string; details?: { permission?: string } };
       if (err.code === 'OUT_OF_STOCK' && !allowNegative) {
         say('worried', err.message);
+        // Bought but not received yet? Offer to receive it now so it sells from the real batch and price.
+        const waiting = (await ctx.db.purchaseItems.filter(i => i.medicineId === m.id && !i.deleted).toArray());
+        const pos = (await ctx.db.purchases.bulkGet([...new Set(waiting.map(i => i.purchaseId))])).filter(p => p && !p.deleted && (p.status === 'ordered' || p.status === 'draft'));
+        if (pos.length && can(user, 'purchases.receive')) {
+          const po = pos[0]!;
+          if (await confirmAsk({ title: 'Stock not received yet', message: `${m.name} is in purchase ${po.number}, which is still waiting.\n\nReceive ${po.number} now? Its stock and sale price go into Inventory.`, confirmText: `Receive ${po.number}` })) {
+            try { const { receivePurchase } = await import('../../core/inventory.ts'); await receivePurchase(ctx, po.id); toast('ok', t('stockAdded'), po.number); await add(m, qty); return; }
+            catch (x) { toast('bad', (x as Error).message); }
+          }
+        }
         if (await confirmAsk({ title: 'Stock not entered', message: `${err.message}\n\nSell anyway? This needs approval and is logged.`, danger: true, confirmText: 'Sell anyway' })) await add(m, qty, true);
       } else if (err.code === 'OVERRIDE_REQUIRED') {
         setModal({ sup: err.details!.permission!, then: async () => { const prev = ctx.user; ctx.user = { ...prev!, perms: [...prev!.perms, 'pos.negative_stock'] }; try { await add(m, qty, true); } finally { ctx.user = prev; } } });
@@ -190,31 +201,45 @@ export function Pos() {
           </motion.div>
         )}
 
-        <div className="table-wrap">
+        <div className="bill">
+          <div className="bill-head">
+            <strong>Bill</strong>
+            <span className="badge acc num">{cart.lines.length} {cart.lines.length === 1 ? 'item' : 'items'}</span>
+            <span className="spacer" />
+            {cart.lines.length > 0 && <button type="button" className="btn sm ghost" onClick={async () => { if (await confirmAsk({ message: 'Clear this bill?', danger: true, confirmText: 'Clear bill' })) { setCart(newCart(settings.pricesIncludeGst)); say('idle', ''); } }}><Icon name="trash" size={14} /> Clear</button>}
+          </div>
           {cart.lines.length === 0 ? <Empty icon="cart" text={t('emptyBill')} /> : (
-            <table className="t">
-              <thead><tr><th>{t('name')}</th><th>{t('batch')} (FEFO)</th><th>{t('expiry')}</th><th>{t('qty')}</th><th>{t('price')}</th><th style={{ textAlign: 'end' }}>{t('amount')}</th><th /></tr></thead>
-              <tbody>
-                <AnimatePresence initial={false}>
-                  {cart.lines.map((l, i) => {
-                    const days = l.batch.pending ? null : daysBetween(today, l.batch.expiryDate);
-                    return (
-                      <motion.tr key={l.key} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} layout>
-                        <td><div className="row" style={{ flexWrap: 'nowrap', gap: 10 }}><MedThumb med={l.medicine} size={36} /><MedName med={l.medicine} /></div></td>
-                        <td><button type="button" className="badge acc num" style={{ border: 0, cursor: 'pointer' }} onClick={() => { setBatchLine(l.key); setModal('batch'); }} title="Change batch">#{l.batch.batchNo}{l.overriddenBy ? ' ✎' : ''}</button></td>
-                        <td className="num" style={{ color: days !== null && days <= 30 ? 'var(--warn)' : undefined }}>{l.batch.pending ? '—' : l.batch.expiryDate}</td>
-                        <td><span className="qty"><button type="button" aria-label="Less" onClick={() => { setQty(cart, l.key, l.qty - 1); refresh(); }}>−</button>
-                          <input className="num" aria-label={t('qty')} value={l.qty} onChange={e => { setQty(cart, l.key, Number(e.target.value) || 0); refresh(); }} />
-                          <button type="button" aria-label="More" onClick={async () => { await add(l.medicine, 1); }}>+</button></span></td>
-                        <td><PriceCell value={l.unitPrice} changed={l.listPrice != null && l.unitPrice !== l.listPrice} editable={can(user, 'pos.price')} onChange={v => { try { setPrice(cart, l.key, v); refresh(); } catch (e) { toast('bad', (e as Error).message); } }} /></td>
-                        <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(tot.lines[i]?.total || 0, lang)}</td>
-                        <td><button type="button" className="btn icon ghost sm" aria-label={t('delete')} onClick={() => { setQty(cart, l.key, 0); refresh(); }}><Icon name="trash" size={16} /></button></td>
-                      </motion.tr>
-                    );
-                  })}
-                </AnimatePresence>
-              </tbody>
-            </table>
+            <div className="bill-lines">
+              <AnimatePresence initial={false}>
+                {cart.lines.map((l, i) => {
+                  const days = l.batch.pending ? null : daysBetween(today, l.batch.expiryDate);
+                  return (
+                    <motion.div key={l.key} className="bill-line" layout
+                      initial={{ opacity: 0, y: -14, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, x: 60, height: 0, marginTop: 0, paddingTop: 0, paddingBottom: 0 }}
+                      transition={{ type: 'spring', stiffness: 420, damping: 32 }}>
+                      <div className="bl-item">
+                        <MedThumb med={l.medicine} size={38} />
+                        <div className="col" style={{ gap: 4, minWidth: 0 }}>
+                          <MedName med={l.medicine} />
+                          <div className="row" style={{ gap: 6 }}>
+                            <button type="button" className={`badge ${l.batch.pending ? 'warn' : 'acc'} num`} style={{ border: 0, cursor: 'pointer' }} onClick={() => { setBatchLine(l.key); setModal('batch'); }} title="Change batch">
+                              {l.batch.pending ? 'Not received yet' : `#${l.batch.batchNo}`}{l.overriddenBy ? ' ✎' : ''}</button>
+                            {!l.batch.pending && <span className="small num" style={{ color: days !== null && days <= 30 ? 'var(--warn)' : 'var(--muted)' }}>{t('expiry')} {l.batch.expiryDate}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bl-qty"><span className="qty"><button type="button" aria-label="Less" onClick={() => { setQty(cart, l.key, l.qty - 1); refresh(); }}>−</button>
+                        <input className="num" aria-label={t('qty')} value={l.qty} onChange={e => { setQty(cart, l.key, Number(e.target.value) || 0); refresh(); }} />
+                        <button type="button" aria-label="More" onClick={async () => { await add(l.medicine, 1); }}>+</button></span></div>
+                      <div className="bl-price"><span className="small faint">{t('price')}</span>
+                        <PriceCell value={l.unitPrice} changed={!!l.listPrice && l.unitPrice !== l.listPrice} editable={can(user, 'pos.price') || !l.listPrice} onChange={v => { try { setPrice(cart, l.key, v); refresh(); } catch (e) { toast('bad', (e as Error).message); } }} /></div>
+                      <motion.strong key={tot.lines[i]?.total} className="num bl-amt" initial={{ scale: 1.12, color: 'var(--accent)' }} animate={{ scale: 1, color: 'var(--text)' }}>{money(tot.lines[i]?.total || 0, lang)}</motion.strong>
+                      <button type="button" className="btn icon ghost sm bl-del" aria-label={t('delete')} onClick={() => { setQty(cart, l.key, 0); refresh(); }}><Icon name="trash" size={16} /></button>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
           )}
         </div>
       </section>

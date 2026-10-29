@@ -9,13 +9,23 @@ import { getIdentity, encryptSecret, decryptSecret } from './identity.ts';
 import { serverClock } from './ops.ts';
 import * as sup from './supervision.ts';
 import { pairingPayload, type Endpoints } from './tunnel.ts';
-import { getLicenseToken, installId, setSuspended, trustedNow } from './license.ts';
+import { getLicenseToken, installId, setSuspended, setRevoked, trustedNow } from './license.ts';
 import { VENDOR, licensingOn } from '../shared/vendor.ts';
 import { AppError } from '../shared/util.ts';
+import { ALL_PERMS } from '../shared/permissions.ts';
 import type { User, Shop, Invoice, Medicine, Patient } from '../shared/types.ts';
 
 export const SUPPORT_USER = 'vendor-support';
 export const supportOn = (db: DB) => getSetting(db, 'support_access') === '1';
+/** Support can see and fix everything in the shop (the owner account itself stays protected). */
+export const SUPPORT_PERMS = ALL_PERMS.filter(p => p !== 'users.delete');
+
+/** Support logins made by older versions were view-only — bring them up to full support. */
+function upgradeSupportUser(db: DB) {
+  const su = allRows<User>(db, 'users', `WHERE username = ? AND deleted = 0`, SUPPORT_USER)[0];
+  if (!su || SUPPORT_PERMS.every(p => (su.perms || []).includes(p))) return;
+  putRow(db, 'users', { ...su, perms: SUPPORT_PERMS } as User, serverClock.tick());
+}
 
 /** The owner switches vendor support access on or off. */
 export function setSupportAccess(db: DB, actor: User, on: boolean): { on: boolean } {
@@ -26,7 +36,7 @@ export function setSupportAccess(db: DB, actor: User, on: boolean): { on: boolea
     const pin = String(crypto.randomInt(0, 100_000_000)).padStart(8, '0');
     sup.saveUser(db, actor, {
       id: existing?.id, username: SUPPORT_USER, name: `${VENDOR.name} (support)`, role: 'custom', active: true, pin,
-      perms: ['dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'settings', 'invoices.view_all', 'invoices.reprint'],
+      perms: SUPPORT_PERMS,
     });
     setSetting(db, 'support_pin', encryptSecret(pin, secret));
   } else if (existing) {
@@ -59,6 +69,7 @@ export async function checkIn(db: DB, deps: CheckinDeps = {}): Promise<{ suspend
   };
   let support: Record<string, string> | null = null;
   if (supportOn(db)) {
+    upgradeSupportUser(db);
     const id = getIdentity(db)!;
     const ep = deps.endpoints?.() || { lan: [], tailscale: null, cloudflare: null };
     const pin = decryptSecret(getSetting(db, 'support_pin') || '', id.jwtSecret) || '';
@@ -77,18 +88,36 @@ export async function checkIn(db: DB, deps: CheckinDeps = {}): Promise<{ suspend
     if (!res.ok) return null;
     const served = Date.parse(res.headers?.get?.('date') || '');
     if (Number.isFinite(served)) trustedNow(db, served); // the dashboard's clock also moves time forward
-    const d = await res.json() as { suspended?: boolean; message?: string | null };
-    setSuspended(db, !!d.suspended);
+    const d = await res.json() as { suspended?: boolean; revoked?: boolean; message?: string | null };
+    setSuspended(db, !!d.suspended); setRevoked(db, !!d.revoked);
     setSetting(db, 'vendor_message', d.message || null);
     setSetting(db, 'vendor_checkin', new Date().toISOString());
     return { suspended: !!d.suspended, message: d.message || null };
   } catch { return null; } // offline: keep the last known state
 }
 
-/** Check in shortly after start, then every few hours. */
-export function startVendorLink(db: DB, deps: CheckinDeps & { log?: (m: string) => void } = {}): () => void {
+/** Light status check (pause / cancel only, no stats). Cheap, so it runs every couple of minutes. */
+export async function pingStatus(db: DB, deps: CheckinDeps = {}): Promise<{ suspended: boolean; revoked: boolean } | null> {
+  if (!VENDOR.vendorApi || !licensingOn()) return null;
+  const license = getLicenseToken(db);
+  if (!license) return null;
+  try {
+    const res = await (deps.fetch || fetch)(VENDOR.vendorApi.replace(/\/$/, '') + '/ping', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ license, installId: installId(db) }), signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const d = await res.json() as { suspended?: boolean; revoked?: boolean; message?: string | null };
+    setSuspended(db, !!d.suspended); setRevoked(db, !!d.revoked);
+    setSetting(db, 'vendor_message', d.message || null);
+    return { suspended: !!d.suspended, revoked: !!d.revoked };
+  } catch { return null; }
+}
+
+/** Full check-in shortly after start and every hour; pause/cancel status every 2 minutes. */
+export function startVendorLink(db: DB, deps: CheckinDeps & { log?: (m: string) => void; onChange?: () => void } = {}): () => void {
   if (!VENDOR.vendorApi || !licensingOn()) return () => {};
-  const run = () => checkIn(db, deps).then(r => { if (r?.suspended) deps.log?.('Vendor dashboard: this shop is paused.'); }).catch(() => {});
-  const a = setTimeout(run, 15_000), b = setInterval(run, VENDOR.checkinMinutes * 60_000);
-  return () => { clearTimeout(a); clearInterval(b); };
+  const run = () => checkIn(db, deps).then(r => { deps.onChange?.(); if (r?.suspended) deps.log?.('Vendor dashboard: this shop is paused.'); }).catch(() => {});
+  const ping = () => pingStatus(db, deps).then(() => deps.onChange?.()).catch(() => {});
+  const a = setTimeout(run, 15_000), b = setInterval(run, VENDOR.checkinMinutes * 60_000), c = setInterval(ping, VENDOR.pingMinutes * 60_000);
+  return () => { clearTimeout(a); clearInterval(b); clearInterval(c); };
 }

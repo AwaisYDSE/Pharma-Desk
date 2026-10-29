@@ -224,7 +224,7 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   app.get('/api/settings/ai', session(), wrap(() => ({ hasKey: ai.hasGeminiKey(db), provider: ai.keyProvider(db) })));
   // Vendor support access: only the owner can switch it; it is shown on every device and logged.
   app.get('/api/settings/support', session(), wrap(() => ({ on: supportOn(db), available: !!VENDOR.vendorApi && licensingOn(), vendor: VENDOR.name })));
-  app.post('/api/settings/support', session(), wrap(req => setSupportAccess(db, req.user!, !!req.body?.on)));
+  app.post('/api/settings/support', session(), wrap(req => { const r = setSupportAccess(db, req.user!, !!req.body?.on); void checkInNow(); return r; })); // show in the dashboard straight away
 
   /* ---------- AI ---------- */
   app.post('/api/ai/rx', session('ai'), wrap(req => ai.parsePrescription(db, req.body || {}, { fetch: opts.aiFetch }, req.device!.did)));

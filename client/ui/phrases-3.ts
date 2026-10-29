@@ -143,6 +143,7 @@ export const P3: Record<string, Tr> = {
   'Give discounts': ['رعایت دینا', 'منح الخصومات', 'छूट देना', 'Hacer descuentos'],
   'Credit (udhaar) sales': ['ادھار فروخت', 'البيع الآجل', 'उधार बिक्री', 'Ventas a crédito (fiado)'],
   'Sell a newer batch instead of nearest-expiry': ['قریب الختم بیچ کے بجائے نیا بیچ بیچنا', 'بيع تشغيلة أحدث بدل الأقرب انتهاءً', 'पास की समाप्ति वाले की जगह नया बैच बेचना', 'Vender un lote más nuevo en lugar del que caduca antes'],
+  'Sell items at price 0 (free)': ['اشیاء صفر قیمت (مفت) پر بیچنا', 'بيع الأصناف بسعر 0 (مجاناً)', 'चीज़ें 0 कीमत (मुफ़्त) पर बेचना', 'Vender artículos a precio 0 (gratis)'],
   'Sell items not yet in stock': ['سٹاک میں نہ ہونے والی اشیاء بیچنا', 'بيع أصناف غير متوفرة بعد', 'स्टॉक में न होने वाली चीज़ें बेचना', 'Vender artículos sin existencias'],
   "See other users' bills": ['دوسرے صارفین کے بل دیکھنا', 'رؤية فواتير المستخدمين الآخرين', 'दूसरे उपयोगकर्ताओं के बिल देखना', 'Ver facturas de otros usuarios'],
   'Void / return bills': ['بل منسوخ / واپس کرنا', 'إلغاء / إرجاع الفواتير', 'बिल रद्द / वापस करना', 'Anular / devolver facturas'],

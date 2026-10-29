@@ -127,7 +127,7 @@ export async function receivePurchase(ctx: Ctx, purchaseId: string) {
   const db = ctx.db;
   const now = new Date().toISOString();
   let created: Batch[] = [];
-  await db.transaction('rw', [db.purchases, db.purchaseItems, db.batches, db.ledger, db.outbox, db.audit], async () => {
+  await db.transaction('rw', [db.purchases, db.purchaseItems, db.batches, db.ledger, db.outbox, db.audit, db.medicines], async () => {
     const p = await db.purchases.get(purchaseId);
     if (!p) throw new AppError('NOT_FOUND', 'Purchase not found');
     if (p.status === 'received') throw new AppError('DUPLICATE', 'This purchase was already received');
@@ -135,6 +135,7 @@ export async function receivePurchase(ctx: Ctx, purchaseId: string) {
     if (!items.length) throw new AppError('EMPTY', 'Add at least one line');
     for (const it of items) if (!it.batchNo || !it.expiryDate) throw new AppError('BATCH_REQUIRED', 'Every line needs a batch number and expiry date');
     const deltas: Delta[] = [];
+    const priceRows: OpRow[] = [];
     created = [];
     for (const it of items) {
       let qty = it.qty + (it.freeQty || 0);
@@ -153,6 +154,15 @@ export async function receivePurchase(ctx: Ctx, purchaseId: string) {
       };
       await db.batches.put(b);
       created.push(b);
+      // The sale price typed in the purchase becomes the medicine's selling price.
+      if (it.salePrice && it.salePrice > 0) {
+        const m = await db.medicines.get(it.medicineId);
+        if (m && m.salePrice !== it.salePrice) {
+          const um = { ...m, salePrice: it.salePrice, hlc: stamp(ctx) };
+          await db.medicines.put(um);
+          priceRows.push({ tbl: 'medicines', row: um as never });
+        }
+      }
       deltas.push({ batchId: b.id, medicineId: b.medicineId, delta: qty, create: { ...b, qty: 0 } });
     }
     const rp: Purchase = { ...p, status: 'received', receivedAt: now, hlc: stamp(ctx) };
@@ -160,7 +170,7 @@ export async function receivePurchase(ctx: Ctx, purchaseId: string) {
     const entry: LedgerEntry = { id: uuid(), partyType: 'supplier', partyId: p.supplierId, date: isoDate(), debit: 0, credit: p.total, ref: p.number, note: 'Purchase bill', hlc: stamp(ctx) };
     await db.ledger.put(entry);
     const a = await logAuditRow(ctx, 'purchase.receive', { entity: 'purchases', entityId: p.id, details: { number: p.number, lines: items.length, total: p.total } });
-    await enqueue(ctx, makeOp(ctx, 'stock', [{ tbl: 'purchases', row: rp }, { tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }], deltas));
+    await enqueue(ctx, makeOp(ctx, 'stock', [{ tbl: 'purchases', row: rp }, ...priceRows, { tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }], deltas));
   });
   emit(ctx, 'stock-changed');
   return created;

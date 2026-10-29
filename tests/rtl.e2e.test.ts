@@ -56,7 +56,7 @@ describe('Urdu / RTL switch', () => {
     await page.keyboard.type('panad');
     await page.waitForSelector('.result');
     await page.keyboard.press('Enter');
-    await page.waitForSelector('table.t >> text=Panadol');
+    await page.waitForSelector('.bill-line >> text=Panadol');
     expect(await page.evaluate(() => document.activeElement?.id)).toBe('pos-search');
     await page.close();
   }, 30000);

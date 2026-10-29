@@ -36,12 +36,15 @@ export async function activateLicense(db: DB, token: string): Promise<LicenseSta
 /** 'suspended' is set by the vendor dashboard through check-in; the shop cannot clear it. */
 export function isSuspended(db: DB): boolean { return getSetting(db, 'license_suspended') === '1'; }
 export function setSuspended(db: DB, on: boolean) { setSetting(db, 'license_suspended', on ? '1' : null); }
+/** 'revoked' = the vendor cancelled this licence. Also only cleared by the dashboard. */
+export function isRevoked(db: DB): boolean { return getSetting(db, 'license_revoked') === '1'; }
+export function setRevoked(db: DB, on: boolean) { setSetting(db, 'license_revoked', on ? '1' : null); }
 
 export interface LicenseState {
   on: boolean;                       // is licensing enforced in this build?
   locked: boolean;                   // billing blocked (expired or suspended)
   needsKey: boolean;                 // no valid key yet — show the activate screen
-  status: LicenseStatus['state'] | 'suspended' | 'off';
+  status: LicenseStatus['state'] | 'suspended' | 'cancelled' | 'off';
   shop?: string;
   plan?: string;
   expires?: string | null;
@@ -54,9 +57,9 @@ export async function licenseState(db: DB): Promise<LicenseState> {
   const token = getLicenseToken(db);
   const st = token ? await verifyLicense(token, VENDOR.publicKey, { machine: installId(db), now: trustedNow(db) }) : { state: 'none' as const };
   const base = { on: true, vendor: VENDOR.name };
-  if (isSuspended(db)) {
+  if (isRevoked(db) || isSuspended(db)) {
     const shop = st.state === 'valid' || st.state === 'expired' || st.state === 'machine_mismatch' ? st.payload.shop : undefined;
-    return { ...base, locked: true, needsKey: false, status: 'suspended', shop };
+    return { ...base, locked: true, needsKey: false, status: isRevoked(db) ? 'cancelled' : 'suspended', shop };
   }
   switch (st.state) {
     case 'valid':

@@ -32,6 +32,27 @@ export async function batchesFor(ctx: Ctx, medicineId: string): Promise<Batch[]>
   return (await ctx.db.batches.where('medicineId').equals(medicineId).toArray()) as unknown as Batch[];
 }
 
+/**
+ * The normal selling price for a medicine, never 0 when any price is known:
+ *  1) the sale price typed in the purchase this batch came from,
+ *  2) the newest purchase of this medicine that has a sale price (received or still waiting),
+ *  3) the newest batch with a sale price,
+ *  4) the price set on the medicine in Inventory.
+ */
+export async function salePriceFor(ctx: Ctx, medicine: Medicine, batch?: Batch): Promise<number> {
+  if (batch?.salePrice && batch.salePrice > 0) return batch.salePrice;
+  const items = (await ctx.db.purchaseItems.filter(i => i.medicineId === medicine.id).toArray()).filter(i => !i.deleted && (i.salePrice || 0) > 0);
+  if (items.length) {
+    const pos = new Map((await ctx.db.purchases.bulkGet([...new Set(items.map(i => i.purchaseId))])).filter(Boolean).map(p => [p!.id, p!]));
+    const live = items.filter(i => { const po = pos.get(i.purchaseId); return po && !po.deleted && po.status !== 'cancelled'; });
+    live.sort((a, b) => { const pa = pos.get(a.purchaseId)!, pb = pos.get(b.purchaseId)!; return `${pb.receivedAt || pb.date}${pb.number}`.localeCompare(`${pa.receivedAt || pa.date}${pa.number}`); });
+    if (live[0]?.salePrice) return live[0].salePrice;
+  }
+  const batches = (await batchesFor(ctx, medicine.id)).filter(b => (b.salePrice || 0) > 0).sort((a, b) => String(b.receivedAt || '').localeCompare(String(a.receivedAt || '')));
+  if (batches[0]?.salePrice) return batches[0].salePrice;
+  return medicine.salePrice || 0;
+}
+
 /** Units of each batch already in the cart. */
 const inCart = (cart: Cart) => {
   const m = new Map<string, number>();
@@ -63,10 +84,11 @@ export async function addToCart(ctx: Ctx, cart: Cart, medicine: Medicine, qty = 
   }
   for (const a of allocations) {
     const existing = cart.lines.find(l => l.batch.id === a.batch.id);
-    const price = a.batch.salePrice || medicine.salePrice;
+    const price = await salePriceFor(ctx, medicine, a.batch);
     if (existing) existing.qty += a.qty;
     else cart.lines.push({ key: uuid(), medicine, batch: a.batch, qty: a.qty, unitPrice: price, listPrice: price, discountBp: 0, taxBp: medicine.gstBp || 0 });
     const days = a.batch.pending ? null : daysBetween(today, a.batch.expiryDate);
+    if (!(price > 0)) warnings.push({ kind: 'noprice', message: `${medicine.name} has no sale price yet — type the price on the bill, or set it in its purchase / Inventory.` });
     if (days !== null && days <= 30) warnings.push({ kind: 'fefo', batchNo: a.batch.batchNo, days, message: `FEFO: Batch #${a.batch.batchNo} expires in ${days} days — sell this one first!` });
   }
   if (allocations.length > 1) warnings.push({ kind: 'split', message: `${medicine.name} taken from ${allocations.length} batches (nearest expiry first)` });
@@ -99,7 +121,8 @@ export function setPrice(cart: Cart, lineKey: string, paisa: number) {
 }
 
 /** True when any line is sold at a price different from its normal price. */
-export const priceChanged = (cart: Cart) => cart.lines.some(l => l.listPrice != null && l.unitPrice !== l.listPrice);
+// A line with no known price (0) can be priced by anyone; only changing a real price needs pos.price.
+export const priceChanged = (cart: Cart) => cart.lines.some(l => l.listPrice != null && l.listPrice > 0 && l.unitPrice !== l.listPrice);
 
 export function setQty(cart: Cart, lineKey: string, qty: number) {
   const l = cart.lines.find(x => x.key === lineKey);
@@ -126,13 +149,15 @@ export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: Serve
   if (!ctx.user || !can(ctx.user, 'pos')) throw new PermissionError();
   if (!cart.lines.length) throw new AppError('EMPTY', 'The bill is empty');
   const shopRow = await ctx.db.shop.get('shop');
-  if (shopRow?.planLock) throw new AppError('LICENSE_LOCKED', shopRow.planLock.status === 'suspended' ? 'The plan is paused, so billing is off. Please contact the developer.' : 'The plan has ended, so billing is off. Please renew.');
+  if (shopRow?.planLock) throw new AppError('LICENSE_LOCKED', shopRow.planLock.status === 'cancelled' ? 'This licence was cancelled, so billing is off. Please contact the developer.' : shopRow.planLock.status === 'suspended' ? 'The plan is paused, so billing is off. Please contact the developer.' : 'The plan has ended, so billing is off. Please renew.');
   const t = totals(cart);
   const discounted = cart.billDiscount > 0 || cart.lines.some(l => l.discountBp > 0);
   if (discounted && !can(ctx.user, 'pos.discount') && !opts.supervisorId) throw new OverrideRequiredError('pos.discount', 'Discounts need a supervisor PIN');
   if (priceChanged(cart) && !can(ctx.user, 'pos.price') && !opts.supervisorId) throw new OverrideRequiredError('pos.price', 'Changing the price needs a supervisor PIN');
   if (pay.method === 'credit' && !can(ctx.user, 'pos.credit_sale') && !opts.supervisorId) throw new OverrideRequiredError('pos.credit_sale', 'Credit sales need a supervisor PIN');
   if (pay.method === 'credit' && !cart.patientId) throw new AppError('PATIENT_REQUIRED', 'Choose the customer for a credit sale');
+  const free = cart.lines.find(l => !(l.unitPrice > 0));
+  if (free && !can(ctx.user, 'pos.zero_price') && !opts.supervisorId) throw new OverrideRequiredError('pos.zero_price', `${free.medicine.name} is at price 0. Type its price, or a supervisor can approve selling it free.`);
   if (pay.method !== 'credit' && pay.paid < t.total) throw new AppError('UNDERPAID', 'Amount received is less than the total');
 
   const invoiceId = uuid();

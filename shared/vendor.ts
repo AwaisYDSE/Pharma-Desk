@@ -2,7 +2,7 @@
 // exactly as before: no licence key needed, no phone-home, no remote access.
 // To sell it: open the PharmaDesk Vendor app, create your signing key, paste its public key below,
 // set requireLicense true, set vendorApi to your dashboard URL, then rebuild.
-export const VENDOR: { name: string; publicKey: string; requireLicense: boolean; vendorApi: string; appUrl: string; checkinMinutes: number } = {
+export const VENDOR: { name: string; publicKey: string; requireLicense: boolean; vendorApi: string; appUrl: string; checkinMinutes: number; pingMinutes: number } = {
   // Your name/brand shown on the licence screen.
   name: 'Awais Amin',
   // Public half of your signing key (Vendor app → Setup). Empty = licensing off.
@@ -16,6 +16,8 @@ export const VENDOR: { name: string; publicKey: string; requireLicense: boolean;
   appUrl: 'https://awaisydse.github.io/Pharma-Desk/',
   // How often (minutes) a licensed shop checks in when it has internet (pause/resume takes effect within this time).
   checkinMinutes: 60,
+  // How often (minutes) a shop asks only "am I paused or cancelled?" — so Pause / Cancel works within this time.
+  pingMinutes: 2,
 };
 
 export function licensingOn(): boolean {

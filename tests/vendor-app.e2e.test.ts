@@ -52,9 +52,24 @@ it('keys and shops work end to end', async () => {
   await p.fill('#c-tok', 'secret-pass-123'); await p.click('#conn button');
   await p.waitForSelector('.shop h3:has-text("Al-Shifa Pharmacy")');
   await p.click('[data-act="pause"]'); await p.fill('[data-box] input', 'Plan expired'); await p.click('[data-box] .btn.danger.solid');
-  await p.waitForSelector('.pill.bad:has-text("Paused")');
-  const again = await (await fetch(base + '/checkin', { method: 'POST', body: JSON.stringify({ license: token, installId: 'abc-1', shop: 'Al-Shifa Pharmacy' }) })).json();
-  expect(again).toEqual({ suspended: true, message: 'Plan expired' });
+  await p.waitForSelector('.pill.wait:has-text("Paused")');
+  const post = async (path: string) => (await fetch(base + path, { method: 'POST', body: JSON.stringify({ license: token, installId: 'abc-1', shop: 'Al-Shifa Pharmacy' }) })).json();
+  expect(await post('/ping')).toEqual({ suspended: true, revoked: false, message: 'Plan expired' });
+  expect(await post('/checkin')).toEqual({ suspended: true, revoked: false, message: 'Plan expired' });
+  // The dashboard shows when the shop has actually stopped
+  await p.click('#conn button'); await p.waitForSelector('.pill.bad:has-text("billing stopped")');
+  // Removing from the list does NOT lift the pause
+  await p.click('[data-act="forget"]'); await p.click('[data-box] .btn.danger.solid');
+  expect((await post('/checkin')).suspended).toBe(true);
+  await p.click('#conn button'); await p.waitForSelector('.shop h3:has-text("Al-Shifa Pharmacy")');
+  // Resume, then cancel the licence
+  await p.click('[data-act="resume"]'); await p.waitForSelector('.pill.good');
+  expect((await post('/ping')).suspended).toBe(false);
+  await p.click('[data-act="cancel"]'); await p.click('[data-box] .btn.danger.solid');
+  await p.waitForSelector('.pill:has-text("Cancelled")');
+  expect(await post('/ping')).toMatchObject({ suspended: true, revoked: true });
+  await p.click('[data-act="restore"]'); await p.waitForSelector('.pill.good');
+  expect((await post('/ping')).revoked).toBe(false);
 
   // Backup → restore on a fresh browser gives the same public key
   await p.click('#t-setup'); await p.click('#b-backup');

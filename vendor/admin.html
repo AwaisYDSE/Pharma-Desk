@@ -78,7 +78,24 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
 .tw { overflow-x: auto; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 600; font-size: 14px; z-index: 20; }
 .example { font-size: 12px; font-weight: 700; color: var(--warn); text-transform: uppercase; letter-spacing: .06em; }
-@media (prefers-reduced-motion: no-preference) { .shop, .box { animation: in .25s ease both; } @keyframes in { from { opacity: .4; transform: translateY(4px); } } }
+@media (prefers-reduced-motion: no-preference) {
+  .box { animation: in .3s ease both; }
+  .shop { animation: rise .45s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 60ms); transition: transform .2s, box-shadow .2s; }
+  .shop:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0,0,0,.18); }
+  .tile { animation: rise .4s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 50ms); }
+  .pill.good::before, .pill.wait::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1.6s ease-in-out infinite; }
+  .btn { transition: transform .12s, border-color .15s, background .15s; } .btn:active { transform: scale(.96); }
+  .toast { animation: pop .3s cubic-bezier(.2,.8,.2,1) both; }
+  .shop.flash { animation: flash .9s ease; }
+  @keyframes in { from { opacity: .4; transform: translateY(4px); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98); } }
+  @keyframes pulse { 50% { opacity: .35; transform: scale(.7); } }
+  @keyframes pop { from { opacity: 0; transform: translate(-50%, 12px) scale(.95); } }
+  @keyframes flash { 30% { box-shadow: 0 0 0 3px var(--accent); } }
+}
+.pill.wait { background: var(--warn-soft); color: var(--warn); }
+.shop.cancelled { border-top-color: var(--muted); opacity: .85; }
+.support .btn.primary { align-self: flex-start; margin-top: 4px; }
 </style>
 
 <div class="wrap">
@@ -137,7 +154,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
       <div class="row"><button class="btn primary">Show shops</button><span class="note" id="c-msg"></span></div>
     </form>
     <div class="tiles" id="tiles"></div>
-    <div class="row"><input id="s-q" placeholder="Search pharmacy, city or phone" style="max-width:340px"><select id="s-f" style="max-width:200px"><option value="all">All shops</option><option value="active">Active</option><option value="paused">Paused</option><option value="expiring">Expiring in 30 days</option><option value="stale">Not seen for 3 days</option><option value="support">Support access ON</option></select><span class="spacer"></span></div>
+    <div class="row"><input id="s-q" placeholder="Search pharmacy, city or phone" style="max-width:340px"><select id="s-f" style="max-width:200px"><option value="all">All shops</option><option value="active">Active</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option><option value="expiring">Expiring in 30 days</option><option value="stale">Not seen for 3 days</option><option value="support">Support access ON</option></select><span class="spacer"></span></div>
     <div class="shops" id="shops"></div>
   </section>
 
@@ -316,37 +333,45 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
   $('#conn').onsubmit = e => { e.preventDefault(); if (!api()) { $('#c-msg').textContent = 'Enter your dashboard address'; return; } load(); };
   const ago = iso => { const m = (Date.now() - Date.parse(iso)) / 6e4; return m < 2 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
   const rs = p => 'Rs ' + Math.round((p || 0) / 100).toLocaleString('en-PK');
-  const state = s => s.suspended ? 'paused' : (Date.now() - Date.parse(s.lastSeen)) > 3 * 864e5 ? 'stale' : 'active';
+  const state = s => s.revoked ? 'cancelled' : s.suspended ? 'paused' : (Date.now() - Date.parse(s.lastSeen)) > 3 * 864e5 ? 'stale' : 'active';
   function renderShops() {
     const list = shops || [];
-    const act = list.filter(s => state(s) === 'active').length, paused = list.filter(s => s.suspended).length, exp = list.filter(s => s.expires && daysLeft(s.expires) <= 30).length;
+    const act = list.filter(s => state(s) === 'active').length, paused = list.filter(s => s.suspended || s.revoked).length, exp = list.filter(s => s.expires && daysLeft(s.expires) <= 30).length;
     const sales = list.reduce((a, s) => a + ((s.stats || {}).sales7d || 0), 0);
-    $('#tiles').innerHTML = [['Shops', list.length], ['Active', act], ['Paused', paused], ['Expiring ≤ 30 days', exp], ['Sales, 7 days (all)', rs(sales)]].map(([l, v]) => `<div class="tile"><span>${l}</span><b>${v}</b></div>`).join('');
+    $('#tiles').innerHTML = [['Shops', list.length], ['Active', act], ['Paused / cancelled', paused], ['Expiring ≤ 30 days', exp], ['Sales, 7 days (all)', rs(sales)]].map(([l, v], i) => `<div class="tile" style="--i:${i}"><span>${l}</span><b>${v}</b></div>`).join('');
     const q = $('#s-q').value.toLowerCase(), f = $('#s-f').value;
     const shown = list.filter(s => (!q || [s.shop, s.licensedTo, s.city, s.phone].join(' ').toLowerCase().includes(q))
-      && (f === 'all' || (f === 'active' && state(s) === 'active') || (f === 'paused' && s.suspended) || (f === 'stale' && state(s) === 'stale') || (f === 'expiring' && s.expires && daysLeft(s.expires) <= 30) || (f === 'support' && s.support)))
+      && (f === 'all' || (f === 'active' && state(s) === 'active') || (f === 'paused' && s.suspended && !s.revoked) || (f === 'cancelled' && s.revoked) || (f === 'stale' && state(s) === 'stale') || (f === 'expiring' && s.expires && daysLeft(s.expires) <= 30) || (f === 'support' && s.support)))
       .sort((a, b) => Date.parse(b.lastSeen) - Date.parse(a.lastSeen));
-    $('#shops').innerHTML = shown.length ? shown.map(card).join('') : `<div class="box"><p class="note">${list.length ? 'No shops match.' : 'No shops yet. A shop appears here once it is activated with your key and has internet.'}</p></div>`;
+    $('#shops').innerHTML = shown.length ? shown.map((s, i) => card(s, i)).join('') : `<div class="box"><p class="note">${list.length ? 'No shops match.' : 'No shops yet. A shop appears here once it is activated with your key and has internet.'}</p></div>`;
     $('#shops').querySelectorAll('[data-act]').forEach(b => b.onclick = () => act2(b.dataset.id, b.dataset.act, b));
   }
-  function card(s) {
+  function card(s, i = 0) {
     const st = state(s), x = s.stats || {};
-    const pill = st === 'paused' ? '<span class="pill bad">Paused</span>' : st === 'stale' ? '<span class="pill warn">Not seen 3+ days</span>' : '<span class="pill good">Active</span>';
+    const stopped = s.revoked || s.suspended, confirmed = stopped && s.lockedAtShop;
+    const pill = st === 'cancelled' ? `<span class="pill plain">Cancelled${confirmed ? ' · stopped' : ''}</span>`
+      : st === 'paused' ? (confirmed ? '<span class="pill bad">Paused · billing stopped</span>' : '<span class="pill wait">Paused · waiting for shop</span>')
+      : st === 'stale' ? '<span class="pill warn">Not seen 3+ days</span>' : '<span class="pill good">Active</span>';
     const sup = s.support ? `<div class="support"><b>Support access is ON (owner allowed it)</b>
       <div>Address: <span class="mono">${esc(s.support.url || 'shop Wi-Fi only')}</span></div>
       <div>Login: <span class="mono">${esc(s.support.username)}</span> · PIN <span class="mono">${esc(s.support.pin)}</span></div>
-      <div>Server PIN: <span class="mono">${esc(s.support.serverPin)}</span> <button class="btn sm" type="button" data-act="pair" data-id="${esc(s.installId)}">Copy pairing code</button></div></div>` : '';
-    return `<article class="shop ${st}">
+      <div>Server PIN: <span class="mono">${esc(s.support.serverPin)}</span> <button class="btn sm" type="button" data-act="pair" data-id="${esc(s.installId)}">Copy pairing code</button></div>
+      <button class="btn primary sm" type="button" data-act="open" data-id="${esc(s.installId)}">Open this shop's PharmaDesk</button>
+      <div class="note">Opens the app connected to this shop and signs in as support — you can see and change its data. The shop sees a banner while you are in.</div></div>` : '';
+    return `<article class="shop ${st}" style="--i:${i}">
       <div class="row"><h3>${esc(s.shop || s.licensedTo)}</h3><span class="spacer"></span>${pill}</div>
       <dl><dt>Licensed to</dt><dd>${esc(s.licensedTo)} · ${esc(s.plan)}</dd>
       <dt>Expires</dt><dd>${s.expires ? esc(s.expires) + ' ' + expPill(s.expires) : 'Never'}</dd>
       <dt>Phone</dt><dd>${esc(s.phone || '—')}</dd><dt>Address</dt><dd>${esc(s.city || '—')}</dd>
       <dt>Last seen</dt><dd>${ago(s.lastSeen)} · v${esc(s.version)} · ${esc(s.platform === 'win32' ? 'Windows' : s.platform === 'darwin' ? 'Mac' : s.platform)}</dd></dl>
       <div class="stats"><div class="stat"><b>${x.bills7d ?? 0}</b>bills 7d</div><div class="stat"><b>${rs(x.sales7d)}</b>sales 7d</div><div class="stat"><b>${x.medicines ?? 0}</b>medicines</div><div class="stat"><b>${x.users ?? 0}</b>users</div><div class="stat"><b>${x.devices ?? 0}</b>phones/PCs</div><div class="stat"><b>${x.patients ?? 0}</b>customers</div></div>
-      ${s.suspended && s.note ? `<div class="note">Message to shop: ${esc(s.note)}</div>` : ''}
+      ${stopped && !confirmed && st !== 'stale' ? `<div class="note">The shop stops billing within about 3 minutes of being online. Nothing changes while its PC is off or offline.</div>` : ''}
+      ${stopped && s.note ? `<div class="note">Message to shop: ${esc(s.note)}</div>` : ''}
       ${sup}
       <div class="row" data-box="${esc(s.installId)}">
-        ${s.suspended ? `<button class="btn primary sm" type="button" data-act="resume" data-id="${esc(s.installId)}">Resume</button>` : `<button class="btn danger sm" type="button" data-act="pause" data-id="${esc(s.installId)}">Pause billing</button>`}
+        ${s.revoked ? `<button class="btn primary sm" type="button" data-act="restore" data-id="${esc(s.installId)}">Restore licence</button>`
+          : s.suspended ? `<button class="btn primary sm" type="button" data-act="resume" data-id="${esc(s.installId)}">Resume billing</button>` : `<button class="btn danger sm" type="button" data-act="pause" data-id="${esc(s.installId)}">Pause billing</button>`}
+        ${s.revoked ? '' : `<button class="btn danger sm" type="button" data-act="cancel" data-id="${esc(s.installId)}">Cancel licence</button>`}
         <span class="spacer"></span><button class="btn sm" type="button" data-act="forget" data-id="${esc(s.installId)}">Remove from list</button>
       </div></article>`;
   }
@@ -354,22 +379,40 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
     const s = (shops || []).find(x => x.installId === id); if (!s) return;
     const box = btn.closest('[data-box]') || btn.parentElement;
     if (act === 'pair') { const p = s.support || {}; return copy(p.pairCode || '', null); }
+    if (act === 'open') {
+      const p = s.support || {};
+      if (!p.pairCode) return toast('Support access is off for this shop');
+      const app = 'https://awaisydse.github.io/Pharma-Desk/';
+      const h = new URLSearchParams({ pair: p.pairCode, pin: p.serverPin || '', u: p.username || '', p: p.pin || '', dev: 'Developer support' });
+      window.open(app + '#' + h.toString(), '_blank', 'noopener');
+      return toast('Opening ' + (s.shop || 'shop') + '…');
+    }
     if (example) return toast('Example shop — connect your dashboard first');
     if (act === 'pause') {
       box.innerHTML = `<input placeholder="Message the shop will see (e.g. Plan expired — please renew)" maxlength="200" style="flex:1 1 220px"><button class="btn danger solid sm" type="button">Pause</button><button class="btn sm" type="button">Cancel</button>`;
       const [inp, yes, no] = box.children; inp.focus();
       no.onclick = renderShops;
-      yes.onclick = async () => { try { await call(`/shops/${id}/suspend`, { method: 'POST', body: JSON.stringify({ on: true, note: inp.value || 'Your plan is paused. Please contact Awais Amin: awaisdpw.co@gmail.com' }) }); s.suspended = true; s.note = inp.value; toast('Paused — takes effect at the shop\'s next check-in'); } catch (e) { toast(e.message); } renderShops(); };
+      yes.onclick = async () => { try { await call(`/shops/${id}/suspend`, { method: 'POST', body: JSON.stringify({ on: true, note: inp.value || 'Your plan is paused. Please contact Awais Amin: awaisdpw.co@gmail.com' }) }); s.suspended = true; s.lockedAtShop = null; s.note = inp.value; toast('Paused — the shop stops billing within about 3 minutes'); } catch (e) { toast(e.message); } renderShops(); flash(id); };
       return;
     }
     if (act === 'forget') {
-      box.innerHTML = `<span class="note" style="flex:1">Remove ${esc(s.shop)} from the list? It comes back if it checks in again.</span><button class="btn danger solid sm" type="button">Remove</button><button class="btn sm" type="button">Cancel</button>`;
+      box.innerHTML = `<span class="note" style="flex:1">Hide ${esc(s.shop)} from the list? Its pause or cancel stays in force; it comes back when it checks in.</span><button class="btn danger solid sm" type="button">Remove</button><button class="btn sm" type="button">Cancel</button>`;
       const [, yes, no] = box.children; no.onclick = renderShops;
       yes.onclick = async () => { try { await call(`/shops/${id}/forget`, { method: 'POST', body: '{}' }); shops = shops.filter(x => x.installId !== id); toast('Removed'); } catch (e) { toast(e.message); } renderShops(); };
       return;
     }
-    if (act === 'resume') { try { await call(`/shops/${id}/suspend`, { method: 'POST', body: JSON.stringify({ on: false }) }); s.suspended = false; s.note = ''; toast('Resumed'); } catch (e) { toast(e.message); } renderShops(); }
+    if (act === 'cancel') {
+      box.innerHTML = `<input placeholder="Message the shop will see (optional)" maxlength="200" style="flex:1 1 220px"><button class="btn danger solid sm" type="button">Cancel licence</button><button class="btn sm" type="button">Keep it</button>`;
+      const [inp, yes, no] = box.children; inp.focus(); no.onclick = renderShops;
+      yes.onclick = async () => { try { await call(`/shops/${id}/cancel`, { method: 'POST', body: JSON.stringify({ on: true, note: inp.value || 'This licence was cancelled. Please contact Awais Amin: awaisdpw.co@gmail.com' }) }); s.revoked = true; s.lockedAtShop = null; s.note = inp.value; toast('Licence cancelled — the shop stops billing within about 3 minutes'); } catch (e) { toast(e.message); } renderShops(); flash(id); };
+      return;
+    }
+    if (act === 'restore') { try { await call(`/shops/${id}/cancel`, { method: 'POST', body: JSON.stringify({ on: false }) }); s.revoked = false; if (!s.suspended) s.note = ''; toast('Licence restored'); } catch (e) { toast(e.message); } renderShops(); flash(id); return; }
+    if (act === 'resume') { try { await call(`/shops/${id}/suspend`, { method: 'POST', body: JSON.stringify({ on: false }) }); s.suspended = false; s.note = ''; toast('Resumed — billing comes back within about 3 minutes'); } catch (e) { toast(e.message); } renderShops(); flash(id); }
   }
+  const flash = id => { const el = [...document.querySelectorAll('#shops [data-box]')].find(x => x.dataset.box === id)?.closest('.shop'); if (el) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } };
+  // Keep the list fresh while it is open (shows "billing stopped" as soon as the shop obeys).
+  setInterval(() => { if (!document.hidden && !$('#p-shops').hidden && shops && shops.length && $('#c-tok').value && !document.querySelector('#shops [data-box] input')) load(); }, 30000);
   $('#s-q').oninput = renderShops; $('#s-f').onchange = renderShops;
 
   shops = []; example = false;

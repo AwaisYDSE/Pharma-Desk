@@ -125,7 +125,8 @@ function MyProfile({ onClose }: { onClose: () => void }) {
 function PlanBanner({ lock }: { lock: { status: string; message?: string | null; vendor: string } }) {
   const { isServerPc, user, sync, toast } = useStore();
   const [renew, setRenew] = useState(false), [key, setKey] = useState(''), [busy, setBusy] = useState(false);
-  const paused = lock.status === 'suspended';
+  const cancelled = lock.status === 'cancelled';
+  const paused = lock.status === 'suspended' || cancelled;
   const again = async () => {
     setBusy(true);
     try { await fetch('/local/checkin-now', { method: 'POST' }); await sync.syncNow().catch(() => {}); toast('ok', 'Checked'); } catch { toast('bad', 'No internet — try again later'); }
@@ -144,7 +145,7 @@ function PlanBanner({ lock }: { lock: { status: string; message?: string | null;
   return (
     <div className="plan-banner" role="alert">
       <Icon name="warn" size={18} />
-      <span><strong>{paused ? 'Plan paused — billing is off.' : 'Plan ended — billing is off.'}</strong> {lock.message && paused ? <span data-no-tr>{lock.message} </span> : null}<span>You can still view everything. Contact the developer:</span> <span data-no-tr>awaisdpw.co@gmail.com</span></span>
+      <span><strong>{cancelled ? 'Licence cancelled — billing is off.' : paused ? 'Plan paused — billing is off.' : 'Plan ended — billing is off.'}</strong> {lock.message && paused ? <span data-no-tr>{lock.message} </span> : null}<span>You can still view everything. Contact the developer:</span> <span data-no-tr>awaisdpw.co@gmail.com</span></span>
       <span className="spacer" />
       {isServerPc && user?.owner && <>
         {paused ? <button type="button" className="btn sm" disabled={busy} onClick={again}>Check again</button>
