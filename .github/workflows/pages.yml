@@ -53,7 +53,8 @@ jobs:
           if (-not ((Get-Item "$env:ProgramData\PharmaDesk" -Force).Attributes -match 'Hidden')) { throw 'data folder not hidden' }
           # Start the server ourselves so we can stop it again (CI must not be left with a server running).
           $env:PHARMADESK_DATA = "$env:ProgramData\PharmaDesk"; $env:PHARMADESK_OPEN = '0'
-          $p = Start-Process $exe -ArgumentList '--no-warnings',"$env:ProgramFiles\PharmaDesk\server\server.mjs" -PassThru
+          $app = "$env:ProgramFiles\PharmaDesk"
+          $p = Start-Process $exe -ArgumentList '--no-warnings','server\server.mjs' -WorkingDirectory $app -PassThru
           try {
             $ok = $false
             for ($i = 0; $i -lt 40; $i++) {
