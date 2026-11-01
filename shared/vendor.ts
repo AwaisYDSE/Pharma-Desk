@@ -6,7 +6,7 @@ export const VENDOR: { name: string; publicKey: string; requireLicense: boolean;
   // Your name/brand shown on the licence screen.
   name: 'Awais Amin',
   // Public half of your signing key (Vendor app → Setup). Empty = licensing off.
-  publicKey: '6qy0_OCV3gxIrTQqMnCqriq3IVQcuui5iBB4HEY_2IA',
+  publicKey: '1L975GmnZ3uetkcS23o8Bu94rPAv774r3Puegu3-vaM',
   // When true, a shop cannot finish setup without a valid key you issued.
   requireLicense: true,
   // Your dashboard API base, e.g. 'https://pharmadesk-admin.YOURNAME.workers.dev'.
