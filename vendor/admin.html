@@ -104,15 +104,23 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
     <div><h1>PharmaDesk Vendor</h1><div class="sub">Licence keys and shops · Awais Amin</div></div>
   </header>
 
+      <form class="box" id="conn">
+      <div class="row"><h2>Sign in</h2><span class="spacer"></span><button class="btn sm" type="button" id="b-install" hidden>Install as app</button></div>
+      <div class="grid">
+        <label class="f" id="l-api">Dashboard address<input id="c-api" placeholder="https://pharmadesk-admin.yourname.workers.dev" inputmode="url"></label>
+        <label class="f">Admin password<input id="c-tok" type="password" autocomplete="current-password"></label>
+      </div>
+      <div class="row"><button class="btn primary">Sign in</button><span class="note" id="c-msg"></span></div>
+    </form>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" id="t-keys" aria-selected="true" data-tab="keys">Make a key</button>
     <button class="tab" role="tab" id="t-shops" aria-selected="false" data-tab="shops">Shops</button>
-    <button class="tab" role="tab" id="t-setup" aria-selected="false" data-tab="setup">Setup &amp; backup</button>
+    <button class="tab" role="tab" id="t-setup" aria-selected="false" data-tab="setup">Setup</button>
   </nav>
 
   <!-- KEYS -->
   <section class="panel" id="p-keys">
-    <div class="callout warn" id="nokey" hidden>No signing key on this device yet. Open <b>Setup &amp; backup</b> to create one, or restore your backup.</div>
+    <div class="callout warn" id="nokey" hidden>Sign in above with your dashboard password to make keys.</div>
     <form class="box" id="issue">
       <h2>New licence key</h2>
       <div class="grid">
@@ -137,7 +145,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
       <div id="rs-out" hidden class="panel" style="gap:10px"><div class="key" id="rs-key"></div><div class="row"><button class="btn primary sm" type="button" id="b-copyreset">Copy reset key</button><span class="note">Expires in 2 days.</span></div></div>
     </form>
     <div class="box">
-      <div class="row"><h2>Keys made on this device</h2><span class="spacer"></span><input id="h-q" placeholder="Search" style="max-width:220px"></div>
+      <div class="row"><h2>All keys made</h2><span class="spacer"></span><input id="h-q" placeholder="Search" style="max-width:220px"></div>
       <div class="tw"><table><thead><tr><th>Pharmacy</th><th>Plan</th><th>Made</th><th>Expires</th><th></th></tr></thead><tbody id="hist"></tbody></table></div>
       <p class="note" id="h-empty">Keys you make appear here so you can copy them again.</p>
     </div>
@@ -145,14 +153,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
 
   <!-- SHOPS -->
   <section class="panel" id="p-shops" hidden>
-    <form class="box" id="conn">
-      <h2>Your dashboard</h2>
-      <div class="grid">
-        <label class="f" id="l-api">Dashboard address<input id="c-api" placeholder="https://pharmadesk-admin.yourname.workers.dev" inputmode="url"></label>
-        <label class="f">Admin password<input id="c-tok" type="password" autocomplete="current-password"></label>
-      </div>
-      <div class="row"><button class="btn primary">Show shops</button><span class="note" id="c-msg"></span></div>
-    </form>
+
     <div class="tiles" id="tiles"></div>
     <div class="row"><input id="s-q" placeholder="Search pharmacy, city or phone" style="max-width:340px"><select id="s-f" style="max-width:200px"><option value="all">All shops</option><option value="active">Active</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option><option value="expiring">Expiring in 30 days</option><option value="stale">Not seen for 3 days</option><option value="support">Support access ON</option></select><span class="spacer"></span></div>
     <div class="shops" id="shops"></div>
@@ -161,21 +162,10 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
   <!-- SETUP -->
   <section class="panel" id="p-setup" hidden>
     <div class="box">
-      <h2>Your signing key</h2>
-      <p class="note">Only this key can make licence keys that PharmaDesk accepts. It stays in this browser. Keep a backup somewhere safe — if it is lost, you cannot make keys for old shops' renewals with the same key.</p>
-      <div id="k-none"><button class="btn primary" id="b-gen" type="button">Create my signing key</button></div>
-      <div id="k-have" hidden class="panel">
-        <label class="f">Public key — send this to your developer to switch licensing on<div class="row"><div class="key" id="k-pub" style="flex:1"></div><button class="btn sm" type="button" id="b-copypub">Copy</button></div></label>
-        <span class="note" id="k-made"></span>
-      </div>
-    </div>
-    <div class="box">
-      <h2>Backup</h2>
-      <p class="note">Copy the backup text and keep it in your email drafts or a password manager. Anyone with it can make keys, so never share it.</p>
-      <div class="row"><button class="btn" type="button" id="b-backup">Copy backup text</button><span class="note" id="b-msg"></span></div>
-      <label class="f">Restore from backup<textarea id="r-text" placeholder='Paste your backup text here ( {"publicKey": … } )'></textarea></label>
-      <div class="row"><button class="btn" type="button" id="b-restore">Restore</button><label class="btn" for="r-file" style="display:inline-block">Choose backup file</label><input type="file" id="r-file" accept=".json,.txt,application/json,text/plain" hidden></div>
-      <div id="r-confirm" class="callout bad" hidden>This replaces the signing key on this device. <div class="row" style="margin-top:8px"><button class="btn danger solid sm" type="button" id="b-rc-yes">Replace</button><button class="btn sm" type="button" id="b-rc-no">Cancel</button></div></div>
+      <h2>Signing key</h2>
+      <p class="note">Licence keys are signed here on your dashboard server, protected by your dashboard password. Nothing secret is kept on your phone or Mac — sign in from any device to make keys.</p>
+      <div class="row"><span id="sg-state" class="note">Sign in to see it.</span><span class="spacer"></span><button class="btn primary" type="button" id="b-sgcreate" hidden>Create signing key (once)</button></div>
+      <label class="f">Public key (built into PharmaDesk)<div class="key" id="k-pub">—</div></label>
     </div>
     <div class="box">
       <h2>Dashboard setup (once)</h2>
@@ -198,8 +188,8 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
     get(k, d) { try { const v = localStorage.getItem('pdv.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem('pdv.' + k, JSON.stringify(v)); return true; } catch { return false; } },
   };
-  let memKeys = null; // fallback when storage is blocked
-  const keys = () => store.get('keys', null) || memKeys;
+  let signerPub = null;
+  const keys = () => signerPub ? { publicKey: signerPub } : null;
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let tt; const toast = m => { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(tt); tt = setTimeout(() => t.hidden = true, 2200); };
   const copy = async (text, el) => { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { if (el) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } toast('Selected — press Copy'); } };
@@ -248,62 +238,41 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
   document.querySelectorAll('.tab').forEach(b => b.onclick = () => show(b.dataset.tab));
 
   // ---------- setup ----------
-  const isoDay = d => d.toISOString().slice(0, 10);
   function renderKey() {
-    const k = keys();
-    $('#k-none').hidden = !!k; $('#k-have').hidden = !k; $('#nokey').hidden = !!k; $('#b-issue').disabled = !k;
-    if (k) { $('#k-pub').textContent = k.publicKey; $('#k-made').textContent = k.created ? 'Created ' + new Date(k.created).toLocaleDateString() : ''; }
+    const k = keys(), signed = !!$('#c-tok').value && shops !== null;
+    $('#nokey').hidden = !!k; $('#b-issue').disabled = !k;
+    $('#k-pub').textContent = k ? k.publicKey : '—';
+    $('#sg-state').textContent = k ? 'Signing key is on the dashboard server.' : signed ? 'No signing key yet.' : 'Sign in to see it.';
+    $('#b-sgcreate').hidden = !!k || !signed;
   }
-  $('#b-gen').onclick = async () => {
-    const k = { ...(await generate()), created: new Date().toISOString() };
-    if (!store.set('keys', k)) memKeys = k;
-    renderKey(); toast('Signing key created — copy your backup now');
-    $('#b-msg').textContent = 'Back up your new key now.';
-  };
-  $('#b-copypub').onclick = () => copy(keys().publicKey, $('#k-pub'));
-  $('#b-backup').onclick = () => { const k = keys(); if (!k) return toast('No key yet'); copy(JSON.stringify(k), null); $('#r-text').value = JSON.stringify(k); $('#b-msg').textContent = 'Backup copied. Also shown in the box below.'; };
-  let pending = null;
-  async function tryRestore(text) {
-    let k; try { k = JSON.parse(text.trim()); } catch { return toast('That is not a PharmaDesk backup'); }
-    if (!k || typeof k.publicKey !== 'string' || typeof k.privatePkcs8 !== 'string') return toast('That is not a PharmaDesk backup');
-    try { const t = 'check'; if (!(await verify(k.publicKey, t, await sign(k, t)))) throw 0; } catch { return toast('This backup is damaged'); }
-    if (keys() && keys().publicKey !== k.publicKey) { pending = k; $('#r-confirm').hidden = false; return; }
-    save(k);
-  }
-  function save(k) { if (!store.set('keys', k)) memKeys = k; renderKey(); toast('Signing key restored'); $('#r-confirm').hidden = true; }
-  $('#b-restore').onclick = () => tryRestore($('#r-text').value);
-  $('#r-file').onchange = async e => { const f = e.target.files[0]; if (f) tryRestore(await f.text()); e.target.value = ''; };
-  $('#b-rc-yes').onclick = () => { if (pending) save(pending); pending = null; };
-  $('#b-rc-no').onclick = () => { pending = null; $('#r-confirm').hidden = true; };
+  async function loadSigner() { try { signerPub = (await call('/signer')).publicKey || null; } catch { signerPub = null; } renderKey(); }
+  $('#b-sgcreate').onclick = async () => { try { signerPub = (await call('/signer/create', { method: 'POST', body: '{}' })).publicKey; toast('Signing key created'); } catch (e) { toast(e.message); } renderKey(); };
+  // Install as an app (Chrome / Edge); on iPhone: Share → Add to Home Screen.
+  let installEvt = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('#b-install').hidden = false; });
+  $('#b-install').onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $('#b-install').hidden = true; };
 
   // ---------- issue ----------
   const expiryText = () => { const d = +$('#i-days').value; $('#i-exp').textContent = d ? 'Expires ' + new Date(Date.now() + d * 864e5).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : 'Never expires'; };
   $('#i-days').onchange = expiryText; expiryText();
   $('#i-plan').onchange = () => { if ($('#i-plan').value === 'trial') $('#i-days').value = '14'; expiryText(); };
   $('#issue').onsubmit = async e => {
-    e.preventDefault(); const k = keys(); if (!k) return show('setup');
+    e.preventDefault(); if (!keys()) return toast('Sign in first');
     const shop = $('#i-shop').value.trim(); if (!shop) return;
-    const days = +$('#i-days').value;
-    const id = 'L-' + Array.from(crypto.getRandomValues(new Uint8Array(5)), b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-    const payload = { id, shop: shop.slice(0, 80), issued: isoDay(new Date()), expires: days ? isoDay(new Date(Date.now() + days * 864e5)) : null, plan: $('#i-plan').value, machine: $('#i-machine').value.trim() || null };
-    const body = utf8b64u(JSON.stringify(payload));
-    const token = `PD1.${body}.${b64u(await sign(k, body))}`;
-    $('#r-key').textContent = token; $('#r-title').textContent = 'Key for ' + payload.shop; $('#result').hidden = false;
-    const h = store.get('history', []); h.unshift({ ...payload, token }); store.set('history', h.slice(0, 500));
-    renderHist(); $('#result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    try {
+      const k = await call('/issue', { method: 'POST', body: JSON.stringify({ shop, plan: $('#i-plan').value, days: +$('#i-days').value, machine: $('#i-machine').value.trim() }) });
+      $('#r-key').textContent = k.token; $('#r-title').textContent = 'Key for ' + k.shop; $('#result').hidden = false;
+      history = [{ ...k, made: new Date().toISOString() }, ...history]; renderHist(); $('#result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (x) { toast(x.message); }
   };
   $('#reset').onsubmit = async e => {
-    e.preventDefault(); const k = keys(); if (!k) return show('setup');
-    const pc = $('#rs-pc').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (pc.length !== 10) return toast('The PC code has 10 letters and numbers');
-    const payload = { k: 'owner-reset', pc: pc.match(/.{1,4}/g).join('-'), nonce: Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join(''), exp: new Date(Date.now() + 2 * 864e5).toISOString() };
-    const body = utf8b64u(JSON.stringify(payload));
-    $('#rs-key').textContent = `PDR.${body}.${b64u(await sign(k, body))}`; $('#rs-out').hidden = false;
+    e.preventDefault(); if (!keys()) return toast('Sign in first');
+    try { $('#rs-key').textContent = (await call('/reset-key', { method: 'POST', body: JSON.stringify({ pc: $('#rs-pc').value }) })).token; $('#rs-out').hidden = false; } catch (x) { toast(x.message); }
   };
   $('#b-copyreset').onclick = () => copy($('#rs-key').textContent, $('#rs-key'));
   $('#b-copykey').onclick = () => copy($('#r-key').textContent, $('#r-key'));
   function renderHist() {
-    const q = $('#h-q').value.toLowerCase(); const h = store.get('history', []).filter(x => !q || x.shop.toLowerCase().includes(q) || x.id.toLowerCase().includes(q));
+    const q = $('#h-q').value.toLowerCase(); const h = history.filter(x => !q || x.shop.toLowerCase().includes(q) || x.id.toLowerCase().includes(q));
     $('#h-empty').hidden = h.length > 0;
     $('#hist').innerHTML = h.map((x, i) => `<tr><td><b>${esc(x.shop)}</b><div class="mono" style="color:var(--muted)">${esc(x.id)}</div></td><td>${esc(x.plan)}</td><td>${esc(x.issued)}</td><td>${x.expires ? esc(x.expires) + ' ' + expPill(x.expires) : '<span class="pill plain">Never</span>'}</td><td><button class="btn sm" data-copy="${i}" type="button">Copy key</button></td></tr>`).join('');
     $('#hist').querySelectorAll('[data-copy]').forEach(b => b.onclick = () => copy(h[+b.dataset.copy].token, null));
@@ -312,6 +281,8 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
   const daysLeft = iso => Math.ceil((Date.parse(iso + 'T23:59:59') - Date.now()) / 864e5);
   const expPill = iso => { const d = daysLeft(iso); return d < 0 ? '<span class="pill bad">Expired</span>' : d <= 30 ? `<span class="pill warn">${d} days left</span>` : ''; };
 
+  let history = [];
+  async function loadKeys() { try { history = (await call('/keys')).keys || []; } catch { history = []; } renderHist(); }
   // ---------- shops ----------
   const onWorker = !!window.PD_WORKER;
   if (onWorker) $('#l-api').hidden = true;
@@ -328,7 +299,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
     $('#c-msg').textContent = 'Loading…';
     try { shops = (await call('/shops')).shops; example = false; $('#c-msg').textContent = `Updated ${new Date().toLocaleTimeString()}`; store.set('api', $('#c-api').value.trim()); store.set('tok', $('#c-tok').value); }
     catch (e) { $('#c-msg').textContent = /fetch|network|load/i.test(e.message) ? 'Could not reach the dashboard. Check the address — or open the dashboard address itself in your browser.' : e.message; return; }
-    renderShops();
+    renderShops(); await loadSigner(); await loadKeys();
   }
   $('#conn').onsubmit = e => { e.preventDefault(); if (!api()) { $('#c-msg').textContent = 'Enter your dashboard address'; return; } load(); };
   const ago = iso => { const m = (Date.now() - Date.parse(iso)) / 6e4; return m < 2 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
@@ -349,7 +320,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
   function card(s, i = 0) {
     const st = state(s), x = s.stats || {};
     const stopped = s.revoked || s.suspended, confirmed = stopped && s.lockedAtShop;
-    const pill = st === 'cancelled' ? `<span class="pill plain">Cancelled${confirmed ? ' · stopped' : ''}</span>`
+    const pill = s.copied ? '<span class="pill bad">Copied key — blocked</span>' : st === 'cancelled' ? `<span class="pill plain">Cancelled${confirmed ? ' · stopped' : ''}</span>`
       : st === 'paused' ? (confirmed ? '<span class="pill bad">Paused · billing stopped</span>' : '<span class="pill wait">Paused · waiting for shop</span>')
       : st === 'stale' ? '<span class="pill warn">Not seen 3+ days</span>' : '<span class="pill good">Active</span>';
     const sup = s.support ? `<div class="support"><b>Support access is ON (owner allowed it)</b>
@@ -372,6 +343,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
         ${s.revoked ? `<button class="btn primary sm" type="button" data-act="restore" data-id="${esc(s.installId)}">Restore licence</button>`
           : s.suspended ? `<button class="btn primary sm" type="button" data-act="resume" data-id="${esc(s.installId)}">Resume billing</button>` : `<button class="btn danger sm" type="button" data-act="pause" data-id="${esc(s.installId)}">Pause billing</button>`}
         ${s.revoked ? '' : `<button class="btn danger sm" type="button" data-act="cancel" data-id="${esc(s.installId)}">Cancel licence</button>`}
+        ${s.copied ? `<button class="btn primary sm" type="button" data-act="move" data-id="${esc(s.installId)}">Allow this PC instead</button>` : ''}
         <span class="spacer"></span><button class="btn sm" type="button" data-act="forget" data-id="${esc(s.installId)}">Remove from list</button>
       </div></article>`;
   }
@@ -407,6 +379,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
       yes.onclick = async () => { try { await call(`/shops/${id}/cancel`, { method: 'POST', body: JSON.stringify({ on: true, note: inp.value || 'This licence was cancelled. Please contact Awais Amin: awaisdpw.co@gmail.com' }) }); s.revoked = true; s.lockedAtShop = null; s.note = inp.value; toast('Licence cancelled — the shop stops billing within about 3 minutes'); } catch (e) { toast(e.message); } renderShops(); flash(id); };
       return;
     }
+    if (act === 'move') { try { await call(`/shops/${id}/move`, { method: 'POST', body: '{}' }); toast('This PC now owns the licence — the other copy is blocked'); await load(); } catch (e) { toast(e.message); } return; }
     if (act === 'restore') { try { await call(`/shops/${id}/cancel`, { method: 'POST', body: JSON.stringify({ on: false }) }); s.revoked = false; if (!s.suspended) s.note = ''; toast('Licence restored'); } catch (e) { toast(e.message); } renderShops(); flash(id); return; }
     if (act === 'resume') { try { await call(`/shops/${id}/suspend`, { method: 'POST', body: JSON.stringify({ on: false }) }); s.suspended = false; s.note = ''; toast('Resumed — billing comes back within about 3 minutes'); } catch (e) { toast(e.message); } renderShops(); flash(id); }
   }
@@ -418,7 +391,7 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
   shops = []; example = false;
 
   // ---------- start ----------
-  renderKey(); renderHist(); renderShops();
+  renderKey(); renderHist(); renderShops(); if (!$('#c-tok').value) show('keys');
   show(store.get('tab', onWorker ? 'shops' : 'keys'));
   if ($('#c-tok').value && (onWorker || $('#c-api').value)) load();
 })();

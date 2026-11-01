@@ -31,25 +31,28 @@ it('keys and shops work end to end', async () => {
   const b = await chromium.launch(); const p = await b.newPage();
   p.on('pageerror', e => { throw e; });
   await p.goto(base + '/');
-  await p.click('#t-setup'); await p.click('#b-gen');
+  // Sign in once; the signing key is created and kept on the dashboard server (never in the browser).
+  await p.fill('#c-tok', 'wrong'); await p.click('#conn button[type=submit], #conn button:not([type])');
+  await p.waitForSelector('text=Wrong admin password');
+  await p.fill('#c-tok', 'secret-pass-123'); await p.click('#conn button:not([type])');
+  await p.click('#t-setup'); await p.click('#b-sgcreate');
+  await p.waitForFunction(() => /^[\w-]{43}$/.test(document.querySelector('#k-pub')!.textContent!.trim()));
   const pub = (await p.textContent('#k-pub'))!.trim();
-  expect(pub).toMatch(/^[\w-]{43}$/);
-  env.PUBLIC_KEY = pub;
+  expect(await p.evaluate(() => Object.keys(localStorage).some(k => k.includes('keys')))).toBe(false);
 
   await p.click('#t-keys'); await p.fill('#i-shop', 'Al-Shifa Pharmacy'); await p.selectOption('#i-days', '365'); await p.click('#b-issue');
+  await p.waitForFunction(() => document.querySelector('#r-key')!.textContent!.startsWith('PD1.'));
   const token = (await p.textContent('#r-key'))!.trim();
   const st = await verifyLicense(token, pub);
   expect(st.state).toBe('valid');
-  expect(await p.locator('#hist tr').count()).toBe(1);
+  await p.waitForFunction(() => document.querySelectorAll('#hist tr').length === 1);
 
   // A shop checks in with that key
   const ci = await fetch(base + '/checkin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ license: token, installId: 'abc-1', shop: 'Al-Shifa Pharmacy', stats: { bills7d: 5, sales7d: 120000 } }) });
   expect((await ci.json()).suspended).toBe(false);
   expect((await fetch(base + '/checkin', { method: 'POST', body: JSON.stringify({ license: token.slice(0, -4) + 'AAAA', installId: 'x' }) })).status).toBe(403);
 
-  await p.click('#t-shops'); await p.fill('#c-tok', 'wrong'); await p.click('#conn button');
-  await p.waitForSelector('text=Wrong admin password');
-  await p.fill('#c-tok', 'secret-pass-123'); await p.click('#conn button');
+  await p.click('#conn button:not([type])'); await p.click('#t-shops');
   await p.waitForSelector('.shop h3:has-text("Al-Shifa Pharmacy")');
   await p.click('[data-act="pause"]'); await p.fill('[data-box] input', 'Plan expired'); await p.click('[data-box] .btn.danger.solid');
   await p.waitForSelector('.pill.wait:has-text("Paused")');
@@ -57,11 +60,11 @@ it('keys and shops work end to end', async () => {
   expect(await post('/ping')).toEqual({ suspended: true, revoked: false, message: 'Plan expired' });
   expect(await post('/checkin')).toEqual({ suspended: true, revoked: false, message: 'Plan expired' });
   // The dashboard shows when the shop has actually stopped
-  await p.click('#conn button'); await p.waitForSelector('.pill.bad:has-text("billing stopped")');
+  await p.click('#conn button:not([type])'); await p.waitForSelector('.pill.bad:has-text("billing stopped")');
   // Removing from the list does NOT lift the pause
   await p.click('[data-act="forget"]'); await p.click('[data-box] .btn.danger.solid');
   expect((await post('/checkin')).suspended).toBe(true);
-  await p.click('#conn button'); await p.waitForSelector('.shop h3:has-text("Al-Shifa Pharmacy")');
+  await p.click('#conn button:not([type])'); await p.waitForSelector('.shop h3:has-text("Al-Shifa Pharmacy")');
   // Resume, then cancel the licence
   await p.click('[data-act="resume"]'); await p.waitForSelector('.pill.good');
   expect((await post('/ping')).suspended).toBe(false);
@@ -71,11 +74,15 @@ it('keys and shops work end to end', async () => {
   await p.click('[data-act="restore"]'); await p.waitForSelector('.pill.good');
   expect((await post('/ping')).revoked).toBe(false);
 
-  // Backup → restore on a fresh browser gives the same public key
-  await p.click('#t-setup'); await p.click('#b-backup');
-  const backup = await p.inputValue('#r-text');
-  const p2 = await (await b.newContext()).newPage(); await p2.goto(base + '/'); await p2.click('#t-setup');
-  await p2.fill('#r-text', backup); await p2.click('#b-restore');
-  expect((await p2.textContent('#k-pub'))!.trim()).toBe(pub);
+  // A copy of the same key on a second PC is blocked; the vendor can move the licence to it
+  const copy = await (await fetch(base + '/checkin', { method: 'POST', body: JSON.stringify({ license: token, installId: 'abc-2', shop: 'Pirate' }) })).json();
+  expect(copy).toMatchObject({ suspended: true });
+  expect(copy.message).toMatch(/another PC/);
+  await p.click('#conn button:not([type])'); await p.waitForSelector('text=Copied key — blocked');
+  await p.click('[data-act="move"]');
+  // Now the new PC owns the key and the old one is the blocked copy
+  await p.waitForFunction(() => [...document.querySelectorAll('.shop')].some(c => c.textContent!.includes('Pirate') && !c.textContent!.includes('Copied key')));
+  expect((await (await fetch(base + '/ping', { method: 'POST', body: JSON.stringify({ license: token, installId: 'abc-2' }) })).json()).suspended).toBe(false);
+  expect((await (await fetch(base + '/ping', { method: 'POST', body: JSON.stringify({ license: token, installId: 'abc-1' }) })).json()).suspended).toBe(true);
   await b.close();
 }, 60000);
