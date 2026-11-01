@@ -208,7 +208,8 @@ td.num, th.num, .num { white-space: nowrap; }
 .bl-price { display: flex; flex-direction: column; gap: 2px; }
 .bl-price .price-in { width: 100% !important; }
 .bl-amt { text-align: end; font-size: 16px; }
-@media (max-width: 760px) {
+.bill { container-type: inline-size; }
+@container (max-width: 680px) {
   .bill-line { grid-template-columns: auto 1fr auto; grid-template-areas: "item item del" "qty price amt"; row-gap: 10px; }
   .bl-item { grid-area: item; } .bl-qty { grid-area: qty; } .bl-price { grid-area: price; } .bl-amt { grid-area: amt; } .bl-del { grid-area: del; }
 }
@@ -246,3 +247,11 @@ td.num, th.num, .num { white-space: nowrap; }
 .po-steps li::before { content: counter(s); display: inline-grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; background: var(--line); margin-inline-end: 6px; font-size: 11px; }
 .po-steps li.done { background: var(--okSoft); color: var(--ok); } .po-steps li.done::before { content: '✓'; background: var(--ok); color: #fff; }
 .po-steps li.now { background: var(--accentSoft); color: var(--accent); font-weight: 700; } .po-steps li.now::before { background: var(--accent); color: var(--onAccent); }
+
+/* Settings: cards flow in columns with no empty gaps */
+.settings-cols { columns: 2 420px; column-gap: 16px; }
+.settings-cols > * { break-inside: avoid; margin-bottom: 16px; width: 100%; display: flex; }
+.money-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--line); }
+.money-row:last-child { border-bottom: 0; }
+.money-row.sub { padding-inline-start: 18px; font-size: 13px; color: var(--muted); }
+.money-row.strong { font-weight: 800; }

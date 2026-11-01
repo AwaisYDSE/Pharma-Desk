@@ -8,13 +8,14 @@ import { saveRecord } from '../../core/inventory.ts';
 import { LANGS } from '../i18n.ts';
 import { can } from '../../../shared/permissions.ts';
 import type { Settings as S } from '../../core/settings.ts';
-import { BillsCard, AutomationCard, MessagesCard, FbrCard, StorageCard } from './SettingsMore.tsx';
+import { BillsCard, AutomationCard, MessagesCard, FbrCard } from './SettingsMore.tsx';
 
 export function Settings() {
   const { t, settings, setSettings, lang, setLang, user, isServerPc, client, online, ctx, toast, shop } = useStore();
   const [f, setF] = useState<S>(settings);
   const [logo, setLogo] = useState<string | null>(settings.logoDataUrl || null);
   const [key, setKey] = useState('');
+  const [critical, setCritical] = useState(false);
   const [aiState, setAiState] = useState<{ hasKey: boolean; provider?: string | null } | null>(null);
   useEffect(() => { if (online && ctx.sessionId) client.request<{ hasKey: boolean; provider?: string | null }>('GET', '/api/settings/ai').then(setAiState).catch(() => {}); }, [online]); // eslint-disable-line
   const saveAi = useAsync(async () => {
@@ -28,7 +29,7 @@ export function Settings() {
     <>
       <h1>{t('settings')}</h1>
       {isServerPc && <ServerPanel />}
-      <div className="grid g-2" style={{ alignItems: 'start' }}>
+      <div className="settings-cols">
         <section className="card col"><h2>{t('shopDetails')}</h2>
           <PhotoPicker label="Shop logo (shown on every device and on receipts)" shape="square" png value={logo} onChange={setLogo} />
           {fld('storeName', t('shopName'))}{fld('address', 'Address')}{fld('phone', t('phone'))}
@@ -46,27 +47,11 @@ export function Settings() {
             } catch (e) { toast('bad', (e as Error).message); }
           }}>{t('save')}</button>
         </section>
-        <div className="col" style={{ gap: 16 }}>
-          <section className="card col"><h2>{t('language')} & {t('theme')}</h2>
+        <section className="card col"><h2>{t('language')} & {t('theme')}</h2>
             <div className="row">{LANGS.map(l => <button type="button" key={l.code} className={`btn sm ${lang === l.code ? 'primary' : ''}`} onClick={() => setLang(l.code)}>{l.label}</button>)}</div>
             <div className="row">{(['system', 'light', 'dark'] as const).map(m => <button type="button" key={m} className={`btn sm ${settings.theme === m ? 'primary' : ''}`} onClick={() => setSettings({ theme: m })}><Icon name={m === 'dark' ? 'moon' : 'sun'} size={16} /> {t(m)}</button>)}</div>
           </section>
-          {can(user, 'settings.ai') && <section className="card col"><h2><Icon name="spark" /> AI</h2>
-            <p className="small muted" style={{ margin: 0 }}>AI reads prescriptions into the bill (Point of Sale → F6), warns about drug interactions and writes the daily summary on the Dashboard. Paste an API key from any AI company — Google, OpenAI, Anthropic or Groq (Groq has a free plan). The key is saved only on the server PC, encrypted, and never sent to phones. Patient names and phone numbers are removed before anything is sent.</p>
-            <span className={`badge ${aiState?.hasKey ? 'ok' : ''}`} style={{ alignSelf: 'flex-start' }}>{aiState == null ? 'Connect to the server to manage AI' : aiState.hasKey ? `AI is ON${aiState.provider ? ' · ' + aiState.provider : ''}` : 'AI is OFF — the offline reader is used'}</span>
-            <form className="col" style={{ gap: 10 }} onSubmit={e => { e.preventDefault(); void saveAi.run(); }}>
-              <label className="field">AI API key<input className="input" type="password" placeholder="Paste your AI key" value={key} onChange={e => setKey(e.target.value)} autoComplete="off" spellCheck={false} /></label>
-              <div className="row" style={{ gap: 10 }}>
-                <button className="btn primary" disabled={saveAi.busy || !online || !key.trim()}>{saveAi.busy ? 'Checking…' : 'Save & test'}</button>
-                {aiState?.hasKey && <button type="button" className="btn danger" onClick={async () => { if (await confirmAsk({ message: 'Turn AI off and remove the key?', danger: true, confirmText: 'Remove' })) setAiState(await client.request('POST', '/api/settings/ai', { key: '' })); }}>Remove key</button>}
-              </div>
-            </form>{saveAi.err && <span className="err">{saveAi.err}</span>}
-            <p className="small faint" style={{ margin: 0 }}>Without a key, or when the AI limit is used up, PharmaDesk uses its built-in offline reader and interaction list — billing never stops.</p>
-          </section>}
-          {user?.owner && <SupportCard />}
-          <AutomationCard />
-          {can(user, 'settings.shop') && <FbrCard />}
-          <StorageCard />
+
           <section className="card col"><h2>This device</h2>
             {ctx.standalone
               ? <span className="small muted"><strong>This device only.</strong> All data is saved on this device. Make a backup regularly and keep it safe (e.g. on a USB stick or in your email).</span>
@@ -77,12 +62,29 @@ export function Settings() {
             </div>}
             <button type="button" className="btn danger" onClick={async () => { if (await confirmAsk({ message: ctx.standalone ? 'Erase everything on this device? This cannot be undone — download a backup first.' : 'Disconnect this device from the shop and delete its copy of the data? Unsynced sales will be lost.', danger: true, confirmText: ctx.standalone ? 'Erase' : 'Disconnect' })) { await ctx.db.delete(); location.reload(); } }}>{ctx.standalone ? 'Erase this device' : 'Disconnect this device'}</button>
           </section>
-        </div>
-      </div>
-      <div className="grid g-2" style={{ alignItems: 'start' }}>
         <BillsCard />
-        {can(user, 'settings.messages') && <MessagesCard />}
       </div>
+      {user?.owner && <section className="card col" style={{ marginTop: 4 }}>
+        <label className="row"><Toggle on={critical} onChange={setCritical} label="Critical settings" /> <strong>Critical settings</strong> <span className="small muted">— AI, email & SMS, automatic orders, FBR and developer support. Owner only.</span></label>
+      </section>}
+      {user?.owner && critical && <div className="settings-cols">
+          <section className="card col"><h2><Icon name="spark" /> AI</h2>
+            <p className="small muted" style={{ margin: 0 }}>AI reads prescriptions into the bill (Point of Sale → F6), warns about drug interactions and writes the daily summary on the Dashboard. Paste an API key from any AI company — Google, OpenAI, Anthropic or Groq (Groq has a free plan). The key is saved only on the server PC, encrypted, and never sent to phones. Patient names and phone numbers are removed before anything is sent.</p>
+            <span className={`badge ${aiState?.hasKey ? 'ok' : ''}`} style={{ alignSelf: 'flex-start' }}>{aiState == null ? 'Connect to the server to manage AI' : aiState.hasKey ? `AI is ON${aiState.provider ? ' · ' + aiState.provider : ''}` : 'AI is OFF — the offline reader is used'}</span>
+            <form className="col" style={{ gap: 10 }} onSubmit={e => { e.preventDefault(); void saveAi.run(); }}>
+              <label className="field">AI API key<input className="input" type="password" placeholder="Paste your AI key" value={key} onChange={e => setKey(e.target.value)} autoComplete="off" spellCheck={false} /></label>
+              <div className="row" style={{ gap: 10 }}>
+                <button className="btn primary" disabled={saveAi.busy || !online || !key.trim()}>{saveAi.busy ? 'Checking…' : 'Save & test'}</button>
+                {aiState?.hasKey && <button type="button" className="btn danger" onClick={async () => { if (await confirmAsk({ message: 'Turn AI off and remove the key?', danger: true, confirmText: 'Remove' })) setAiState(await client.request('POST', '/api/settings/ai', { key: '' })); }}>Remove key</button>}
+              </div>
+            </form>{saveAi.err && <span className="err">{saveAi.err}</span>}
+            <p className="small faint" style={{ margin: 0 }}>Without a key, or when the AI limit is used up, PharmaDesk uses its built-in offline reader and interaction list — billing never stops.</p>
+          </section>
+        <MessagesCard />
+        <AutomationCard />
+        <FbrCard />
+        <SupportCard />
+      </div>}
     </>
   );
 }

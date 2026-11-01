@@ -305,12 +305,13 @@ export function Pos() {
 /** Unit price on a bill line. Editable only for users allowed to change prices (pos.price). */
 function PriceCell({ value, changed, editable, onChange }: { value: number; changed: boolean; editable: boolean; onChange: (paisa: number) => void }) {
   const { lang } = useStore();
-  const [txt, setTxt] = useState((value / 100).toFixed(2));
-  useEffect(() => { setTxt((value / 100).toFixed(2)); }, [value]);
+  const show = (v: number) => v > 0 ? (v / 100).toFixed(2) : '';
+  const [txt, setTxt] = useState(show(value));
+  useEffect(() => { setTxt(show(value)); }, [value]);
   if (!editable) return <span className="num">{money(value, lang)}</span>;
-  const commit = () => { const n = Number(txt.replace(/,/g, '')); if (Number.isFinite(n) && n >= 0) onChange(Math.round(n * 100)); else setTxt((value / 100).toFixed(2)); };
+  const commit = () => { const n = Number(txt.replace(/,/g, '')); if (Number.isFinite(n) && n >= 0) onChange(Math.round(n * 100)); else setTxt(show(value)); };
   return (
-    <input className="input num price-in" inputMode="decimal" aria-label="Price" value={txt} title={changed ? 'Price changed' : undefined}
+    <input className="input num price-in" inputMode="decimal" aria-label="Price" placeholder="0.00" value={txt} onFocus={e => e.currentTarget.select()} title={changed ? 'Price changed' : undefined}
       style={{ width: 96, padding: '6px 8px', minHeight: 34, borderColor: changed ? 'var(--warn)' : undefined }}
       onChange={e => setTxt(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); (e.target as HTMLInputElement).blur(); } }} />
   );

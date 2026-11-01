@@ -104,7 +104,7 @@ export function AppProvider({ children, onReady }: { children: (s: Store | null)
         if (ev === 'stock-conflict') toast('warn', 'Stock mismatch', 'More was sold offline than was in stock. Please count the shelf and receive stock.');
         if (ev === 'op-rejected') toast('bad', 'Not saved on server', String((data as { message?: string })?.message || ''));
         if (ev === 'print-error') toast('warn', 'Printer offline', 'The receipt is queued and will print when the printer is back. You can also download it.');
-        if (ev === 'unpaired') toast('bad', 'Disconnected', String(data));
+        if (ev === 'unpaired') { sync.stop(); toast('bad', 'Disconnected', 'This device was removed from the shop. Its copy of the shop data has been erased.'); void ctx.db.delete().catch(() => {}).finally(() => setTimeout(() => location.reload(), 1500)); }
         if (ev === 'session-ended') { void doLogout(ctx, null, String(data || '')).then(() => setUser(null)); toast('warn', 'Signed out', String(data || '')); }
       });
       const u = await restoreSession(ctx);

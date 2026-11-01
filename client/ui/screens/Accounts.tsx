@@ -74,20 +74,20 @@ export function Accounts() {
       </section>
       <div className="grid g-2" style={{ alignItems: 'start' }}>
         <section className="card col"><h2>Profit & loss</h2>
-          <table className="t"><tbody>
+          <div className="col" style={{ gap: 0 }}>
             <Row l="Sales (bills)" v={T.sales} /><Row l="  of which prescription bills" v={T.salesRx} sub /><Row l="  of which over-the-counter bills" v={T.salesOtc} sub />
             <Row l="Returns (refunds)" v={-T.refunds} /><Row l="Net sales" v={T.netSales} strong />
             <Row l={`${taxLabel} in sales`} v={-T.tax} /><Row l="Cost of medicines sold" v={-T.cogs} /><Row l="Gross profit" v={T.grossProfit} strong />
             <Row l="Expenses" v={-T.expenses} /><Row l="Net profit" v={T.netProfit} strong color={T.netProfit >= 0 ? 'var(--ok)' : 'var(--bad)'} />
-          </tbody></table>
+          </div>
         </section>
         <section className="card col"><h2>Cash flow</h2>
-          <table className="t"><tbody>
+          <div className="col" style={{ gap: 0 }}>
             <Row l="Paid bills" v={T.cashIn - T.creditCollected} /><Row l="Udhaar collected" v={T.creditCollected} /><Row l="Money in" v={T.cashIn} strong color="var(--ok)" />
             <Row l="Paid to suppliers" v={-T.supplierPaid} /><Row l="Expenses" v={-T.expenses} /><Row l="Refunds paid back" v={-(T.cashOut - T.supplierPaid - T.expenses)} />
             <Row l="Money out" v={-T.cashOut} strong color="var(--bad)" />
             <Row l="Sold on udhaar (not paid yet)" v={T.creditSales} sub /><Row l="Stock received (supplier bills)" v={T.purchases} sub />
-          </tbody></table>
+          </div>
         </section>
         <section className="card col"><h2>{taxLabel} by rate</h2>
           {sum.taxByRate.length === 0 ? <span className="small muted">No tax on sales in these dates.</span> :
@@ -117,8 +117,7 @@ const STATUS: Record<string, string> = { paid: 'Paid', credit: 'Unpaid (udhaar)'
 
 function Row({ l, v, strong, sub, color }: { l: string; v: number; strong?: boolean; sub?: boolean; color?: string }) {
   const { lang } = useStore();
-  return <tr><td className={sub ? 'small muted' : ''} style={{ fontWeight: strong ? 700 : undefined, paddingInlineStart: sub ? 18 : undefined }}>{l.trim()}</td>
-    <td className="num" style={{ textAlign: 'end', fontWeight: strong ? 800 : undefined, color }}>{money(v, lang)}</td></tr>;
+  return <div className={`money-row${sub ? ' sub' : ''}${strong ? ' strong' : ''}`}><span>{l.trim()}</span><span className="num" style={{ color }}>{money(v, lang)}</span></div>;
 }
 
 function ExpenseForm({ e, onClose, onSaved }: { e: Partial<Expense>; onClose: () => void; onSaved: () => void }) {

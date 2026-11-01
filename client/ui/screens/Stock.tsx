@@ -9,7 +9,7 @@ import { Icon, Modal, Empty, Toggle, SupervisorPrompt, useAsync, PhotoPicker, co
 import { money } from '../i18n.ts';
 import { can } from '../../../shared/permissions.ts';
 import { toPaisa, pctToBp } from '../../../shared/money.ts';
-import { isoDate, daysBetween, addDays } from '../../../shared/util.ts';
+import { isoDate, daysBetween, addDays, escapeHtml } from '../../../shared/util.ts';
 import { SearchIndex } from '../../../shared/search.ts';
 import {
   saveMedicine, deleteMedicine, saveRecord, addOpeningStock, adjustStock, stockMap, savePurchase, receivePurchase,
@@ -52,12 +52,15 @@ export function Inventory() {
     if (i && 'newMedicine' in i && can(user, 'inventory.create')) setEdit({ name: i.newMedicine.name || '', generic: '', salePrice: 0, reorderLevel: 10 });
   }, []); // eslint-disable-line
   const open = meds.find(m => m.id === openId) || null;
+  const [bulk, setBulk] = useState(false);
   return (
     <>
       <div className="row"><h1>{t('inventory')}</h1><span className="badge num">{meds.length} items</span><span className="spacer" />
         <input className="input" style={{ maxWidth: 320 }} placeholder={t('search')} value={q} onChange={e => setQ(e.target.value)} />
+        {can(user, 'inventory.create') && <button type="button" className="btn" onClick={() => setBulk(true)}><Icon name="plus" /> Add many</button>}
         {can(user, 'inventory.create') && <button type="button" className="btn primary" onClick={() => setEdit({ name: q, generic: '', salePrice: 0, reorderLevel: 10 })}><Icon name="plus" /> {t('newMedicine')}</button>}
       </div>
+      {bulk && <BulkMedicines onClose={() => setBulk(false)} />}
       <div className="table-wrap">
         {list.length === 0 ? <Empty text={q ? `"${q}" is not in inventory${can(user, 'inventory.create') ? ' — use "New medicine" to create it' : ''}` : 'No medicines yet'} /> :
           <table className="t"><thead><tr><th>{t('name')} · Formula</th><th>Category</th><th>{t('company')}</th><th>{t('salePrice')}</th><th>{t('stock')}</th><th /></tr></thead><tbody>
@@ -326,6 +329,9 @@ export function Purchases() {
             <label className="field" style={{ flex: 1 }}>Supplier<select className="input" value={form.supplierId} onChange={e => setForm({ ...form, supplierId: e.target.value })}><option value="">Choose supplier…</option>{sups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
             {can(user, 'suppliers.create') && <button type="button" className="btn" onClick={() => setNewSup(true)}><Icon name="plus" size={16} /> New supplier</button>}
           </div>
+          <details className="small"><summary style={{ cursor: 'pointer', fontWeight: 700 }}>Paste many lines at once</summary>
+            <PasteLines meds={meds} onAdd={rows => setForm(f => f && ({ ...f, lines: [...f.lines.filter(l => l.medicineId || l.qty), ...rows.map(x => blank(x)), blank()] }))} />
+          </details>
           <span className="small muted">Only items that exist in Inventory can be purchased. Received stock goes straight into Inventory and is sold first-expiry-first in Point of Sale.</span>
           <div className="col" style={{ gap: 12 }}>
             {form.lines.map((l, i) => { const up = (p: Partial<Line>) => { const c = [...form.lines]; c[i] = { ...l, ...p }; if (i === c.length - 1 && p.medicineId) c.push(blank()); setForm({ ...form, lines: c }); }; return (
@@ -511,9 +517,7 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
         {tab === 'bills' && (bills.length === 0 ? <Empty icon="receipt" text="No bills yet" /> : <div className="table-wrap"><table className="t"><thead><tr><th>Bill</th><th>Date</th><th>{t('total')}</th><th>Status</th></tr></thead><tbody>
           {[...bills].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(b => <tr key={b.id}><td>{can(user, 'invoices') ? <Link onClick={() => { onClose(); navigate('invoices', { open: 'invoice', id: b.id }); }}>{b.number}</Link> : b.number}</td><td className="num">{fmtDate(b.createdAt)}</td><td className="num">{money(b.total, lang as never)}</td><td><span className={`badge ${b.status === 'void' ? 'bad' : b.status === 'credit' ? 'warn' : 'ok'}`}>{b.status}</span></td></tr>)}
         </tbody></table></div>)}
-        {tab === 'ledger' && (ledger.length === 0 ? <Empty icon="receipt" text="No entries yet" /> : <div className="table-wrap"><table className="t"><thead><tr><th>Date</th><th>Ref</th><th>Debit</th><th>Credit</th></tr></thead><tbody>
-          {[...ledger].sort((a, b) => b.date.localeCompare(a.date)).map(l => <tr key={l.id}><td className="num">{l.date}</td><td>{l.ref} <span className="muted small">{l.note}</span></td><td className="num">{l.debit ? money(l.debit, lang as never) : ''}</td><td className="num">{l.credit ? money(l.credit, lang as never) : ''}</td></tr>)}
-        </tbody></table></div>)}
+        {tab === 'ledger' && <Statement party={party} kind={kind} ledger={ledger} />}
         {tab === 'rx' && <>
           {rx.length === 0 && <Empty icon="rx" text="No repeat prescriptions" />}
           {rx.map(p => { const m = meds.find(x => x.id === p.medicineId); const due = p.nextDue <= addDays(isoDate(), 3); return (
@@ -662,6 +666,101 @@ function SendBill({ inv, patient, onClose, send }: { inv: Invoice; patient?: Pat
         <div className="form-actions"><span className="spacer" /><button type="button" className="btn" onClick={onClose}>{t('cancel')}</button><button className="btn primary" disabled={a.busy}><Icon name="send" size={16} /> Send</button></div>
       </form>
     </Modal>
+  );
+}
+
+/** Split one pasted line (comma, tab or semicolon separated). */
+const cells = (line: string) => line.split(/\t|;|,(?![^"]*"[^"]*$)/).map(c => c.trim().replace(/^"|"$/g, ''));
+const money2 = (v: string) => { const n = Number(String(v || '').replace(/[^\d.]/g, '')); return Number.isFinite(n) ? n : 0; };
+
+/** Add many medicines at once: paste rows from Excel / WhatsApp, or choose a CSV file. */
+function BulkMedicines({ onClose }: { onClose: () => void }) {
+  const { ctx, toast, t } = useStore();
+  const [text, setText] = useState('');
+  const rows = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(cells).filter(c => c[0] && !/^name$/i.test(c[0]));
+  const a = useAsync(async () => {
+    const have = new Set((await ctx.db.medicines.toArray()).filter(m => !m.deleted).map(m => `${m.name.toLowerCase()}|${(m.strength || '').toLowerCase()}`));
+    let added = 0, skipped = 0;
+    for (const c of rows) {
+      const [name, generic = '', strength = '', form = '', price = '', company = '', reorder = ''] = c;
+      if (have.has(`${name.toLowerCase()}|${strength.toLowerCase()}`)) { skipped++; continue; }
+      await saveMedicine(ctx, { name: name.slice(0, 80), generic: generic.slice(0, 120), strength: strength.slice(0, 30), form: form.slice(0, 30), manufacturer: company.slice(0, 60), salePrice: Math.round(money2(price) * 100), reorderLevel: reorder ? Math.max(0, Math.floor(money2(reorder))) : 10 });
+      have.add(`${name.toLowerCase()}|${strength.toLowerCase()}`); added++;
+    }
+    toast('ok', `${added} medicine(s) added`, skipped ? `${skipped} already existed and were skipped` : undefined);
+    onClose();
+  });
+  return (
+    <Modal title="Add many medicines" onClose={onClose} wide>
+      <div className="col">
+        <span className="small muted">One medicine per line: <b>Name, Formula, Strength, Form, Sale price, Company, Reorder level</b>. Only the name is needed. You can copy rows straight from Excel.</span>
+        <textarea className="input num" style={{ minHeight: 200 }} value={text} onChange={e => setText(e.target.value)} placeholder={'Panadol, Paracetamol, 500mg, Tablet, 3.50, GSK, 50\nAugmentin, Amoxicillin + Clavulanic acid, 625mg, Tablet, 45, GSK'} />
+        <label className="btn" style={{ alignSelf: 'flex-start' }}><Icon name="plus" size={16} /> Choose a CSV file<input type="file" accept=".csv,.txt,text/csv,text/plain" hidden onChange={async e => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} /></label>
+        {a.err && <span className="err">{a.err}</span>}
+        <div className="form-actions"><strong>{rows.length} line(s)</strong><span className="spacer" /><button type="button" className="btn" onClick={onClose}>{t('cancel')}</button><button type="button" className="btn primary" disabled={!rows.length || a.busy} onClick={() => a.run()}>{a.busy ? '…' : `Add ${rows.length}`}</button></div>
+      </div>
+    </Modal>
+  );
+}
+
+/** Purchase: paste many lines — Item, Qty, Cost, Sale price, Batch, Expiry. Items are matched by name. */
+function PasteLines({ meds, onAdd }: { meds: Medicine[]; onAdd: (rows: Partial<Line>[]) => void }) {
+  const [text, setText] = useState('');
+  const [miss, setMiss] = useState<string[]>([]);
+  const add = () => {
+    const out: Partial<Line>[] = [], notFound: string[] = [];
+    for (const line of text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)) {
+      const [name, qty = '', cost = '', sale = '', batch = '', exp = ''] = cells(line);
+      const n = name.toLowerCase();
+      const m = meds.find(x => `${x.name} ${x.strength || ''}`.trim().toLowerCase() === n) || meds.find(x => x.name.toLowerCase() === n) || meds.find(x => x.name.toLowerCase().startsWith(n));
+      if (!m) { notFound.push(name); continue; }
+      const e = exp.match(/^(\d{1,2})[/-](\d{2,4})$/); // MM/YY or MM/YYYY → last day of month
+      const expiry = e ? new Date(Number(e[2].length === 2 ? '20' + e[2] : e[2]), Number(e[1]), 0, 12).toISOString().slice(0, 10) : /^\d{4}-\d{2}-\d{2}$/.test(exp) ? exp : addDays(isoDate(), 540);
+      out.push({ medicineId: m.id, qty: String(Math.floor(money2(qty)) || ''), cost: cost ? String(money2(cost)) : '', sale: sale ? String(money2(sale)) : (m.salePrice ? String(m.salePrice / 100) : ''), batchNo: batch, expiryDate: expiry });
+    }
+    setMiss(notFound);
+    if (out.length) { onAdd(out); setText(''); }
+  };
+  return (
+    <div className="col" style={{ gap: 6, marginTop: 6 }}>
+      <span className="muted">One item per line: <b>Item name, Qty, Cost, Sale price, Batch, Expiry</b> (expiry like 06/28 or 2028-06-30).</span>
+      <textarea className="input num" style={{ minHeight: 110 }} value={text} onChange={e => setText(e.target.value)} placeholder={'Panadol 500mg, 100, 2.80, 3.50, B123, 06/28'} />
+      <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} disabled={!text.trim()} onClick={add}>Add these lines</button>
+      {miss.length > 0 && <span className="err">Not in Inventory (add them first): {miss.join(', ')}</span>}
+    </div>
+  );
+}
+
+/** Account statement with opening balance, running balance and closing balance — print or send. */
+function Statement({ party, kind, ledger }: { party: Supplier | Patient; kind: 'suppliers' | 'patients'; ledger: { id: string; date: string; ref: string; note?: string; debit: number; credit: number }[] }) {
+  const { lang, shop } = useStore();
+  const [from, setFrom] = useState(addDays(isoDate(), -90)), [to, setTo] = useState(isoDate());
+  const sign = (l: { debit: number; credit: number }) => kind === 'suppliers' ? l.credit - l.debit : l.debit - l.credit;
+  const sorted = [...ledger].sort((a, b) => a.date.localeCompare(b.date));
+  const opening = sorted.filter(l => l.date < from).reduce((s, l) => s + sign(l), 0);
+  let run = opening;
+  const rows = sorted.filter(l => l.date >= from && l.date <= to).map(l => ({ ...l, bal: (run += sign(l)) }));
+  const print = () => {
+    const html = `<style>body{font:12px system-ui;margin:12mm}table{width:100%;border-collapse:collapse}td,th{padding:4px;border-bottom:1px solid #ccc;text-align:left}.n{text-align:right}</style>
+      <h2>${escapeHtml(shop?.name || '')}</h2><h3>Account statement — ${escapeHtml(party.name)}</h3><p>${from} to ${to}</p>
+      <table><tr><th>Date</th><th>Ref</th><th class="n">Debit</th><th class="n">Credit</th><th class="n">Balance</th></tr>
+      <tr><td colspan="4">Opening balance</td><td class="n">${money(opening, lang as never)}</td></tr>
+      ${rows.map(r => `<tr><td>${r.date}</td><td>${escapeHtml(r.ref)} ${escapeHtml(r.note || '')}</td><td class="n">${r.debit ? money(r.debit, lang as never) : ''}</td><td class="n">${r.credit ? money(r.credit, lang as never) : ''}</td><td class="n">${money(r.bal, lang as never)}</td></tr>`).join('')}
+      <tr><th colspan="4">Closing balance</th><th class="n">${money(run, lang as never)}</th></tr></table>`;
+    const area = document.createElement('div'); area.className = 'print-area'; area.innerHTML = html;
+    document.body.appendChild(area); window.print(); setTimeout(() => area.remove(), 1000);
+  };
+  return (
+    <div className="col">
+      <div className="row"><label className="field">From<input className="input" type="date" value={from} max={to} onChange={e => setFrom(e.target.value || from)} /></label>
+        <label className="field">To<input className="input" type="date" value={to} min={from} onChange={e => setTo(e.target.value || to)} /></label>
+        <span className="spacer" /><button type="button" className="btn" onClick={print}><Icon name="print" size={16} /> Print / PDF</button></div>
+      <div className="table-wrap"><table className="t"><thead><tr><th>Date</th><th>Ref</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>
+        <tr><td colSpan={4}><strong>Opening balance</strong></td><td className="num"><strong>{money(opening, lang as never)}</strong></td></tr>
+        {rows.map(l => <tr key={l.id}><td className="num">{l.date}</td><td>{l.ref} <span className="muted small">{l.note}</span></td><td className="num">{l.debit ? money(l.debit, lang as never) : ''}</td><td className="num">{l.credit ? money(l.credit, lang as never) : ''}</td><td className="num">{money(l.bal, lang as never)}</td></tr>)}
+        <tr><td colSpan={4}><strong>Closing balance</strong></td><td className="num"><strong>{money(run, lang as never)}</strong></td></tr>
+      </tbody></table></div>
+    </div>
   );
 }
 
