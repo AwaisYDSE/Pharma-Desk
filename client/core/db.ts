@@ -3,8 +3,9 @@
 // and billing continues. Changes made offline wait in the outbox and sync later.
 // © Awais Amin
 import Dexie, { type Table } from 'dexie';
-import type { Op, Synced, SyncTable, User, Medicine, Batch, Supplier, Patient, Prescription, Invoice, InvoiceItem, Purchase, PurchaseItem, LedgerEntry, AuditEntry, Shop } from '../../shared/types.ts';
+import type { Op, Synced, SyncTable, User, Medicine, Batch, Supplier, Patient, Prescription, Invoice, InvoiceItem, Purchase, PurchaseItem, LedgerEntry, AuditEntry, Shop, Expense, Refund } from '../../shared/types.ts';
 import { HLC, uuid } from '../../shared/util.ts';
+import { billing, formatBillNumber } from '../../shared/region.ts';
 
 export interface MetaRow { key: string; value: unknown }
 export interface PrintJob { seq?: number; invoiceId: string; status: 'queued' | 'printing' | 'done' | 'failed'; attempts: number; createdAt: string; lastError?: string | null }
@@ -24,6 +25,8 @@ export class PharmaDB extends Dexie {
   users!: Table<User, string>;
   audit!: Table<AuditEntry, string>;
   shop!: Table<Shop, string>;
+  expenses!: Table<Expense, string>;
+  refunds!: Table<Refund, string>;
   outbox!: Table<Op, number>;
   printJobs!: Table<PrintJob, number>;
   sessionEvents!: Table<SessionEvent, number>;
@@ -50,6 +53,7 @@ export class PharmaDB extends Dexie {
       meta: 'key',
     });
     this.version(2).stores({ shop: 'id', medicines: 'id, name, generic, barcode, *altBarcodes, hlc, source' });
+    this.version(3).stores({ expenses: 'id, date, category', refunds: 'id, invoiceId, date', purchaseItems: 'id, purchaseId, medicineId' });
   }
   tbl(name: SyncTable) { return this.table(name) as Table<Synced, string>; }
 }
@@ -109,6 +113,16 @@ export async function enqueue(ctx: Ctx, op: Omit<Op, 'id' | 'deviceId' | 'userId
   } as Op;
   if (!ctx.standalone) await ctx.db.outbox.add(full); // nothing to sync to in "this device only" mode
   return full;
+}
+
+/** Next bill number in the owner's style (Settings → Bills). Each device keeps its own counter. */
+export async function nextBillNumber(ctx: Ctx) {
+  const shop = await ctx.db.shop.get('shop');
+  const b = billing(shop?.billing);
+  const key = 'seq:BILL';
+  const n = Math.max((await getMeta<number>(ctx.db, key, 0)) + 1, Number(b.invoiceStart) || 1);
+  await setMeta(ctx.db, key, n);
+  return formatBillNumber(b, n, ctx.deviceId.slice(0, 4).toUpperCase());
 }
 
 export async function nextNumber(ctx: Ctx, prefix: string) {

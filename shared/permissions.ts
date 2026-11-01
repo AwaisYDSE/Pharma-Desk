@@ -21,6 +21,8 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'invoices.view_all', label: "See other users' bills" },
     { key: 'invoices.reprint', label: 'Reprint / download bills' },
     { key: 'invoices.void', label: 'Void / return bills' },
+    { key: 'invoices.refund', label: 'Return some items from a bill (refund)' },
+    { key: 'messages.send', label: 'Send receipts by email / SMS' },
   ] },
   { key: 'inventory', label: 'Inventory (items)', actions: [
     { key: 'inventory.create', label: 'Create new items' },
@@ -34,6 +36,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'purchases.edit', label: 'Modify purchases (before receiving)' },
     { key: 'purchases.delete', label: 'Cancel purchases' },
     { key: 'purchases.receive', label: 'Receive stock into inventory' },
+    { key: 'purchases.approve', label: 'Approve purchase orders and send them to suppliers' },
   ] },
   { key: 'suppliers', label: 'Suppliers', actions: [
     { key: 'suppliers.create', label: 'Create suppliers' },
@@ -49,6 +52,11 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'patients.rx', label: 'Manage repeat prescriptions' },
   ] },
   { key: 'alerts', label: 'Alerts', actions: [] },
+  { key: 'accounts', label: 'Accounts (money in & out, profit, tax)', actions: [
+    { key: 'accounts.create', label: 'Add expenses' },
+    { key: 'accounts.edit', label: 'Modify expenses' },
+    { key: 'accounts.delete', label: 'Delete expenses' },
+  ] },
   { key: 'reports', label: 'Reports', actions: [
     { key: 'reports.profit', label: 'See cost prices & profit' },
     { key: 'reports.export', label: 'Export reports (CSV)' },
@@ -63,6 +71,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
   { key: 'settings', label: 'Settings', actions: [
     { key: 'settings.shop', label: 'Change shop details & logo' },
     { key: 'settings.ai', label: 'Change AI (Gemini) key' },
+    { key: 'settings.messages', label: 'Change email & SMS settings' },
     { key: 'data.backup', label: 'Export / restore backups' },
   ] },
 ];
@@ -79,7 +88,7 @@ export const ROLE_PRESETS: Record<string, { label: string; perms: string[] }> = 
   pharmacist: { label: 'Pharmacist / Supervisor', perms: pick(
     'dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'ai',
     'pos.discount', 'pos.price', 'pos.credit_sale', 'pos.override_fefo', 'pos.negative_stock',
-    'invoices.view_all', 'invoices.reprint', 'invoices.void',
+    'invoices.view_all', 'invoices.reprint', 'invoices.void', 'invoices.refund', 'messages.send',
     'inventory.create', 'inventory.edit', 'inventory.add_stock', 'inventory.adjust',
     'purchases.create', 'purchases.edit', 'purchases.receive',
     'suppliers.create', 'suppliers.edit', 'patients.create', 'patients.edit', 'patients.payment', 'patients.rx') },
@@ -98,6 +107,7 @@ export function can(user: Pick<User, 'role' | 'perms' | 'active'> | null | undef
 /** Which module a synced table belongs to, for create / edit / delete checks. */
 export const TABLE_PERM: Record<string, string> = {
   medicines: 'inventory', suppliers: 'suppliers', patients: 'patients', purchases: 'purchases', purchaseItems: 'purchases', users: 'users',
+  expenses: 'accounts',
 };
 
 /** create / edit / delete permission for saving a row, given what was there before. */
@@ -105,6 +115,7 @@ export function rowPerm(tbl: string, before: { deleted?: boolean } | null | unde
   if (tbl === 'prescriptions') return 'patients.rx';
   if (tbl === 'shop') return 'settings.shop';
   if (tbl === 'batches') return 'inventory.edit';
+  if (tbl === 'refunds') return 'invoices.refund';
   const mod = TABLE_PERM[tbl];
   if (!mod) return null;
   if (!before) return `${mod}.create`;

@@ -20,7 +20,7 @@ let shopServer: Server, plainServer: Server, browser: Browser, shopUrl = '', pla
 // Words that are data or names, not app text.
 const DATA = new Set<string>();
 for (const m of builtinCatalog()) for (const k of ['name', 'generic', 'manufacturer', 'strength'] as const) if (m[k]) DATA.add(String(m[k]));
-const KEEP = /^(PharmaDesk|pharmadesk:…|Al-Shifa Pharmacy|My Pharmacy|Awais Amin|owner|Rs|PDF|CSV|A4|58mm|80mm|FEFO|NTN|STRN|CNIC|Gemini|Tailscale:|Cloudflare:|English|Español|AIza…|https?:\/\/\S+|awaisdpw\.co@gmail\.com|.*github\.com\/AwaisYDSE\/Pharma-Desk.*|Tab\. Augmentin .*|.*\b(INR|OCD|COPD|ORS|USB|QR|Gemini|API|AI|Chrome|Edge|Windows|PharmaDesk|aistudio\.google\.com|H\. pylori|MIT|PDF|CSV|FEFO)\b.*)$/;
+const KEEP = /^(PharmaDesk|pharmadesk:…|Al-Shifa Pharmacy|My Pharmacy|Awais Amin|owner|Rs|PDF|CSV|A4|58mm|80mm|FEFO|NTN|STRN|CNIC|Gemini|Tailscale:|Cloudflare:|English|Español|AIza…|https?:\/\/\S+|awaisdpw\.co@gmail\.com|.*github\.com\/AwaisYDSE\/Pharma-Desk.*|Tab\. Augmentin .*|INV-.*|.*\b(INR|OCD|COPD|ORS|USB|QR|Gemini|API|AI|Chrome|Edge|Windows|PharmaDesk|aistudio\.google\.com|H\. pylori|MIT|PDF|CSV|FEFO)\b.*)$/;
 
 async function untranslated(page: Page): Promise<string[]> {
   const found: string[] = await page.evaluate(() => {
@@ -35,7 +35,7 @@ async function untranslated(page: Page): Promise<string[]> {
     return [...out];
   });
   // Remove names (medicines, companies, shop, owner) from each text; whatever English is left is a miss.
-  const names = [...DATA, 'Al-Shifa Pharmacy', 'My Pharmacy', 'Awais Amin', 'PharmaDesk', 'Google', 'OpenAI', 'Anthropic', 'Groq', 'API'].sort((a, b) => b.length - a.length);
+  const names = [...DATA, 'Al-Shifa Pharmacy', 'My Pharmacy', 'Awais Amin', 'PharmaDesk', 'Google', 'OpenAI', 'Anthropic', 'Groq', 'API', 'FBR', 'POS ID', 'POS', 'PCT', 'SMTP', 'SMS', 'Gmail', 'IRIS', 'Resend', 'TextBee', 'Twilio', 'GLB', 'NTN', 'STRN', 'you@gmail.com', '03xx xxxxxxx', 'GST', 'VAT'].sort((a, b) => b.length - a.length);
   return found.filter(s => {
     if (DATA.has(s) || KEEP.test(s)) return false;
     let rest = s;
@@ -109,7 +109,7 @@ describe('Language switching in a real browser', () => {
     await page.fill('input[type=password]', '123456');
     await page.click('button:has-text("Log in")');
     await page.waitForSelector('#pos-search', { timeout: 20000 });
-    const routes = ['dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'ai', 'users', 'settings', 'about'];
+    const routes = ['dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'accounts', 'ai', 'users', 'settings', 'about'];
     const left: string[] = [];
     for (const lang of ['ur', 'ar', 'hi', 'es']) {
       await page.selectOption('header select', lang);

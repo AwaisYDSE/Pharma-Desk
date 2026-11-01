@@ -105,7 +105,13 @@ export function Pos() {
       setLastInvoice(r.invoice.id);
       say('party', lang === 'ur' ? 'شکریہ! آپ کا بل تیار ہے' : `Thank you! Change: ${money(r.invoice.change, lang)}`);
       toast('ok', `${t('saleDone')} · ${r.invoice.number}`, r.offline ? 'Saved on this device — will sync when the server is back.' : money(r.invoice.total, lang));
-      if (settings.autoPrint) void printer.enqueue(r.invoice.id);
+      const printIt = () => { if (settings.autoPrint) void printer.enqueue(r.invoice.id); };
+      // FBR on (Pakistan): get the FBR number first (a few seconds at most) so it prints on the bill.
+      if (s.shop?.fbrOn && !r.offline) {
+        client.request<{ fbrNumber: string | null; error?: string }>('POST', `/api/fbr/invoice/${r.invoice.id}`, {})
+          .then(async x => { if (x.fbrNumber) await s.sync.syncNow().catch(() => {}); else if (x.error) toast('warn', 'FBR', `${x.error} — it will be reported again automatically.`); })
+          .catch(() => {}).finally(printIt);
+      } else printIt();
       setCart(newCart(settings.pricesIncludeGst)); setReceived(''); setDiscPct(''); setPay('cash');
       setTimeout(() => say('idle', ''), 2500);
     } catch (e) {

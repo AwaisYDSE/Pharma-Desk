@@ -4,7 +4,8 @@
 // normal system print dialog.
 import { fmt } from '../../shared/money.ts';
 import { escapeHtml } from '../../shared/util.ts';
-import type { Invoice, InvoiceItem } from '../../shared/types.ts';
+import type { Invoice, InvoiceItem, Shop } from '../../shared/types.ts';
+import { billing, type BillingOptions } from '../../shared/region.ts';
 import { emit, type Ctx, type PrintJob } from './db.ts';
 import type { Settings } from './settings.ts';
 
@@ -14,7 +15,7 @@ export interface PrinterDriver {
   print(receipt: ReceiptData): Promise<void>;
 }
 
-export interface ReceiptData { invoice: Invoice; items: InvoiceItem[]; settings: Settings; cashier: string; patient?: string | null }
+export interface ReceiptData { invoice: Invoice; items: InvoiceItem[]; settings: Settings; cashier: string; patient?: string | null; bill?: BillingOptions; shop?: Shop | null }
 
 export async function receiptData(ctx: Ctx, invoiceId: string, settings: Settings): Promise<ReceiptData | null> {
   const invoice = await ctx.db.invoices.get(invoiceId);
@@ -22,7 +23,10 @@ export async function receiptData(ctx: Ctx, invoiceId: string, settings: Setting
   const items = await ctx.db.invoiceItems.where('invoiceId').equals(invoiceId).toArray();
   const cashier = (await ctx.db.users.get(invoice.cashierId))?.name || '';
   const patient = invoice.patientId ? (await ctx.db.patients.get(invoice.patientId))?.name : null;
-  return { invoice, items, settings, cashier, patient };
+  const shop = await ctx.db.shop.get('shop');
+  // Shop details and bill options are the owner's (synced); printer and paper are this device's.
+  const s2 = shop ? { ...settings, storeName: shop.name || settings.storeName, address: shop.address ?? settings.address, phone: shop.phone ?? settings.phone, ntn: shop.ntn ?? settings.ntn, strn: shop.strn ?? settings.strn, drugLicense: shop.drugLicense ?? settings.drugLicense, logoDataUrl: shop.logo || settings.logoDataUrl, receiptFooter: shop.receiptFooter === 'Thank you! Medicines are returnable with this receipt within 7 days.' ? settings.receiptFooter : (shop.receiptFooter ?? settings.receiptFooter) } : settings;
+  return { invoice, items, settings: s2, cashier, patient, bill: billing(shop?.billing), shop };
 }
 
 /** Groups split batch lines back into one line per medicine for the paper receipt. */
@@ -39,9 +43,9 @@ function lines(r: ReceiptData) {
 }
 
 export function receiptHtml(r: ReceiptData): string {
-  const s = r.settings, c = s.currency;
+  const b = billing(r.bill), s = r.settings, c = b.currency || s.currency;
   const w = s.receiptWidth === 'A4' ? '190mm' : s.receiptWidth === '58mm' ? '54mm' : '76mm';
-  const rows = lines(r).map(l => `<tr><td>${escapeHtml(l.name)}${l.generic ? `<div class="b"><i>${escapeHtml(l.generic)}</i></div>` : ''}<div class="b">${escapeHtml(l.batches.join(', '))}</div></td><td class="n">${l.qty}</td><td class="n">${escapeHtml(fmt(l.total, c))}</td></tr>`).join('');
+  const rows = lines(r).map(l => `<tr><td>${escapeHtml(l.name)}${l.generic && b.showGeneric ? `<div class="b"><i>${escapeHtml(l.generic)}</i></div>` : ''}${b.showBatch ? `<div class="b">${escapeHtml(l.batches.join(', '))}</div>` : ''}</td><td class="n">${l.qty}</td><td class="n">${escapeHtml(fmt(l.total, c))}</td></tr>`).join('');
   const inv = r.invoice;
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(inv.number)}</title><style>
   @page{margin:4mm}body{font:12px/1.35 system-ui,sans-serif;width:${w};margin:0 auto;color:#000}
@@ -49,20 +53,21 @@ export function receiptHtml(r: ReceiptData): string {
   table{width:100%;border-collapse:collapse}td{padding:3px 0;vertical-align:top;border-bottom:1px dashed #bbb}.n{text-align:right;white-space:nowrap;padding-left:6px}
   .t td{border:0;padding:2px 0}.big{font-size:15px;font-weight:700}hr{border:0;border-top:1px dashed #000}
   </style></head><body>
-  ${s.logoDataUrl ? `<div class="c"><img src="${escapeHtml(s.logoDataUrl)}" style="max-height:48px"></div>` : ''}
-  <h1>${escapeHtml(s.storeName)}</h1>
-  <div class="c">${escapeHtml(s.address)}${s.phone ? `<br>Tel ${escapeHtml(s.phone)}` : ''}${s.drugLicense ? `<br>DL ${escapeHtml(s.drugLicense)}` : ''}${s.ntn ? ` · NTN ${escapeHtml(s.ntn)}` : ''}</div>
-  <hr><div>Bill: <b>${escapeHtml(inv.number)}</b><br>${new Date(inv.createdAt).toLocaleString('en-PK')}<br>Served by: ${escapeHtml(r.cashier)}${r.patient ? `<br>Patient: ${escapeHtml(r.patient)}` : ''}</div><hr>
+  ${s.logoDataUrl && b.showLogo ? `<div class="c"><img src="${escapeHtml(s.logoDataUrl)}" style="max-height:48px"></div>` : ''}
+  <h1>${escapeHtml(s.storeName)}</h1>${r.shop?.branchName ? `<div class="c">${escapeHtml(r.shop.branchName)}</div>` : ''}
+  <div class="c">${escapeHtml(s.address)}${s.phone ? `<br>Tel ${escapeHtml(s.phone)}` : ''}${s.drugLicense ? `<br>DL ${escapeHtml(s.drugLicense)}` : ''}${s.ntn && b.showNtn ? ` · NTN ${escapeHtml(s.ntn)}` : ''}${s.strn && b.showNtn ? ` · STRN ${escapeHtml(s.strn)}` : ''}</div>${b.headerNote ? `<p class="c">${escapeHtml(b.headerNote).replace(/\n/g, '<br>')}</p>` : ''}
+  <hr><div>Bill: <b>${escapeHtml(inv.number)}</b><br>${new Date(inv.createdAt).toLocaleString('en-PK')}${b.showCashier ? `<br>Served by: ${escapeHtml(r.cashier)}` : ''}${r.patient && b.showPatient ? `<br>Customer: ${escapeHtml(r.patient)}` : ''}${inv.fbrNumber ? `<br>FBR invoice: <b>${escapeHtml(inv.fbrNumber)}</b>` : ''}</div><hr>
   <table><tr><td><b>Item</b></td><td class="n"><b>Qty</b></td><td class="n"><b>Amount</b></td></tr>${rows}</table>
   <table class="t"><tr><td>Subtotal</td><td class="n">${fmt(inv.gross, c)}</td></tr>
   ${inv.discount ? `<tr><td>Discount</td><td class="n">- ${fmt(inv.discount, c)}</td></tr>` : ''}
-  ${inv.tax ? `<tr><td>GST${s.pricesIncludeGst ? ' (incl.)' : ''}</td><td class="n">${fmt(inv.tax, c)}</td></tr>` : ''}
+  ${inv.tax ? `<tr><td>${escapeHtml(b.taxLabel)}${s.pricesIncludeGst ? ' (incl.)' : ''}</td><td class="n">${fmt(inv.tax, c)}</td></tr>` : ''}
   <tr class="big"><td>TOTAL</td><td class="n">${fmt(inv.total, c)}</td></tr>
   <tr><td>Paid (${escapeHtml(inv.payMethod)})</td><td class="n">${fmt(inv.paid, c)}</td></tr>
   ${inv.change ? `<tr><td>Change</td><td class="n">${fmt(inv.change, c)}</td></tr>` : ''}
   ${inv.status === 'credit' ? `<tr><td>Balance due</td><td class="n">${fmt(inv.total - inv.paid, c)}</td></tr>` : ''}</table>
+  ${inv.refunded ? `<table class="t"><tr><td>Returned</td><td class="n">- ${fmt(inv.refunded, c)}</td></tr></table>` : ''}
   ${inv.status === 'void' ? '<p class="c big">*** CANCELLED ***</p>' : ''}
-  <hr><p class="c">${escapeHtml(s.receiptFooter)}</p><p class="c b">PharmaDesk · by Awais Amin</p></body></html>`;
+  ${s.receiptFooter ? `<hr><p class="c">${escapeHtml(s.receiptFooter).replace(/\n/g, '<br>')}</p>` : '<hr>'}<p class="c b">PharmaDesk · by Awais Amin</p></body></html>`;
 }
 
 /* ---------------- ESC/POS (USB thermal) ---------------- */
@@ -73,7 +78,7 @@ export function escPos(r: ReceiptData): Uint8Array {
   const push = (...b: number[]) => out.push(...b);
   const text = (s: string) => out.push(...enc.encode(s.normalize('NFKD').replace(/[^\x20-\x7E\n]/g, '')));
   const pad = (l: string, rr: string) => { const sp = Math.max(1, width - l.length - rr.length); return (l + ' '.repeat(sp) + rr).slice(0, Math.max(width, l.length + rr.length + 1)) + '\n'; };
-  const c = r.settings.currency, inv = r.invoice;
+  const c = billing(r.bill).currency || r.settings.currency, inv = r.invoice;
   push(0x1b, 0x40, 0x1b, 0x61, 1, 0x1b, 0x45, 1); text(r.settings.storeName + '\n'); push(0x1b, 0x45, 0);
   if (r.settings.address) text(r.settings.address + '\n');
   if (r.settings.phone) text('Tel ' + r.settings.phone + '\n');
@@ -86,7 +91,7 @@ export function escPos(r: ReceiptData): Uint8Array {
   push(0x1b, 0x45, 1); text(pad('TOTAL', fmt(inv.total, c))); push(0x1b, 0x45, 0);
   text(pad('Paid', fmt(inv.paid, c)));
   if (inv.change) text(pad('Change', fmt(inv.change, c)));
-  push(0x1b, 0x61, 1); text('\n' + r.settings.receiptFooter + '\n\n\n'); push(0x1d, 0x56, 0x41, 0x03);
+  push(0x1b, 0x61, 1); text('\n' + (r.settings.receiptFooter || '') + (r.invoice.fbrNumber ? '\nFBR ' + r.invoice.fbrNumber : '') + '\n\n\n'); push(0x1d, 0x56, 0x41, 0x03);
   return new Uint8Array(out);
 }
 
@@ -118,14 +123,25 @@ export class BrowserPrinter implements PrinterDriver {
   name = 'System printer';
   async isReady() { return typeof window !== 'undefined'; }
   async print(r: ReceiptData) {
-    const f = document.createElement('iframe');
-    f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    document.body.appendChild(f);
-    f.srcdoc = receiptHtml(r);
-    await new Promise<void>(res => { f.onload = () => res(); });
-    f.contentWindow!.focus();
-    f.contentWindow!.print();
-    setTimeout(() => f.remove(), 2000);
+    // Printed from the main window: installed apps (Chrome/Edge app windows) can refuse to print
+    // from a hidden frame ("this app does not support print preview").
+    const html = receiptHtml(r);
+    const style = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
+    const body = (html.match(/<body>([\s\S]*)<\/body>/) || [])[1] || html;
+    const copies = Math.min(5, Math.max(1, Number(billing(r.bill).copies) || 1));
+    document.getElementById('pd-print')?.remove();
+    const area = document.createElement('div');
+    area.id = 'pd-print'; area.className = 'print-area';
+    area.innerHTML = `<style>@media screen{#pd-print{display:none}}@media print{${style.replace(/\bbody\b/g, '#pd-print')} #pd-print .copy+.copy{page-break-before:always}}</style>` + Array.from({ length: copies }, () => `<div class="copy">${body}</div>`).join('');
+    document.body.appendChild(area);
+    await Promise.all([...area.querySelectorAll('img')].map(i => i.complete ? null : new Promise(res => { i.onload = i.onerror = res; })));
+    await new Promise<void>(res => {
+      const done = () => { window.removeEventListener('afterprint', done); res(); };
+      window.addEventListener('afterprint', done);
+      window.print();
+      setTimeout(done, 60_000); // some browsers never fire afterprint
+    });
+    area.remove();
   }
 }
 

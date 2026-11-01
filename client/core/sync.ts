@@ -8,6 +8,7 @@
 import type { Ctx, Pairing } from './db.ts';
 import { getMeta, setMeta, emit } from './db.ts';
 import type { Op, OpResult, PullResponse, Synced, SyncTable } from '../../shared/types.ts';
+import { readBeacon, mergeUrls } from './beacon.ts';
 import { NetworkError, AppError, PIN_MISMATCH_MESSAGE } from '../../shared/util.ts';
 
 /** Sends every pending change to the server, oldest first. Used by sync and before an online sale. */
@@ -55,8 +56,35 @@ export class ServerClient {
     return this.ctx.pairing;
   }
 
-  /** Tries the last working address first, then the others (LAN → Tailscale → Cloudflare). */
-  async request<T>(method: string, path: string, body?: unknown, { session = true } = {}): Promise<T> {
+  lastBeacon = 0;
+
+  /** Tries the last working address first, then the others (LAN → Tailscale → Cloudflare).
+   *  If none answers, asks for the shop server's new address (it changes when the shop PC restarts) and tries again. */
+  async request<T>(method: string, path: string, body?: unknown, opts: { session?: boolean } = {}): Promise<T> {
+    try { return await this.requestOnce<T>(method, path, body, opts); }
+    catch (e) {
+      if (!(e instanceof NetworkError) || !(await this.followServer())) throw e;
+      return this.requestOnce<T>(method, path, body, opts);
+    }
+  }
+
+  /** Reads the shop server's latest announced address. True when it gave us an address we did not have. */
+  async followServer(): Promise<boolean> {
+    if (Date.now() - this.lastBeacon < 20_000) return false;
+    this.lastBeacon = Date.now();
+    const p = this.pairing;
+    const b = await readBeacon(p, this.ctx.fetch);
+    if (!b) return false;
+    const urls = mergeUrls(b.urls, p.urls);
+    if (urls.join() === p.urls.join()) return false;
+    const next = { ...p, urls };
+    await setMeta(this.ctx.db, 'pairing', next);
+    await setMeta(this.ctx.db, 'lastGoodUrl', null);
+    this.ctx.pairing = next;
+    return true;
+  }
+
+  private async requestOnce<T>(method: string, path: string, body?: unknown, { session = true } = {}): Promise<T> {
     const p = this.pairing;
     const preferred = await getMeta<string | null>(this.ctx.db, 'lastGoodUrl', null);
     const all = [...new Set([preferred, ...p.urls].filter(Boolean) as string[])];

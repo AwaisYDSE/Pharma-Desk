@@ -5,7 +5,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import path from 'node:path';
 import fs from 'node:fs';
 import type { DB } from './db.ts';
-import { getRow, allRows, putRow, tx, getSetting } from './db.ts';
+import { getRow, allRows, putRow, tx, getSetting, setSetting } from './db.ts';
 import {
   ensureIdentity, getIdentity, pairDevice, requireDevice, PairLimiter, clientIp, isLocalRequest,
   rotatePin, resetPairings, renameServer, blockedToday, type DeviceClaims,
@@ -20,6 +20,10 @@ import { licensingOn } from '../shared/vendor.ts';
 import { licenseState, activateLicense, installId } from './license.ts';
 import { pcCode, resetOwnerPin } from './owner-reset.ts';
 import { setSupportAccess, supportOn, checkIn } from './vendor-link.ts';
+import * as notify from './notify.ts';
+import { runReorder, queuePurchaseOrder, queueReceipt, afterOps, autoPoOn } from './automation.ts';
+import { summarize, type Group } from '../shared/accounting.ts';
+import * as fbr from './fbr.ts';
 import { VENDOR } from '../shared/vendor.ts';
 import { AppError } from '../shared/util.ts';
 import type { Op, User, Medicine, Batch, Invoice, InvoiceItem, Shop } from '../shared/types.ts';
@@ -42,12 +46,20 @@ export function setupShop(db: DB, name: string, choice: 'builtin' | 'own', owner
   return added;
 }
 
-export interface AppOptions { endpoints?: () => Endpoints; staticDir?: string; aiFetch?: typeof fetch; version?: string }
+export interface AppOptions { endpoints?: () => Endpoints; staticDir?: string; aiFetch?: typeof fetch; notifyFetch?: typeof fetch; fbrFetch?: typeof fetch; version?: string; dataDir?: string }
 
 export function createApp(db: DB, opts: AppOptions = {}) {
   ensureIdentity(db);
   sup.openSessionTable(db);
   const app = express();
+  notify.openNotifyTable(db);
+  let reorderTimer: ReturnType<typeof setTimeout> | null = null;
+  /** After sales: check stock 30 s later (one check for a burst of sales). */
+  const scheduleReorder = () => {
+    if (reorderTimer) return;
+    reorderTimer = setTimeout(() => { reorderTimer = null; try { runReorder(db); } catch (e) { console.error('reorder check failed', e); } }, 30_000);
+    reorderTimer.unref?.();
+  };
   const limiter = new PairLimiter();
 
   // Licensing lock, kept in memory and refreshed so each request check is instant.
@@ -192,7 +204,9 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   app.post('/api/ops', wrap(req => {
     requireUnlocked(); // billing/stock changes stop when unlicensed or expired; reading still works
     const ops: Op[] = Array.isArray(req.body?.ops) ? req.body.ops.slice(0, 200) : [];
-    return { results: ops.map(op => applyOp(db, { ...op, deviceId: req.device!.did })) };
+    const results = ops.map(op => applyOp(db, { ...op, deviceId: req.device!.did }));
+    afterOps(db, ops, new Set(results.filter(r => r.ok).map(r => r.id)), scheduleReorder);
+    return { results };
   }));
   app.get('/api/pull', wrap(req => pullChanges(db, Number(req.query.since || 0), Math.min(5000, Number(req.query.limit || 2000)))));
 
@@ -225,6 +239,90 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   // Vendor support access: only the owner can switch it; it is shown on every device and logged.
   app.get('/api/settings/support', session(), wrap(() => ({ on: supportOn(db), available: !!VENDOR.vendorApi && licensingOn(), vendor: VENDOR.name })));
   app.post('/api/settings/support', session(), wrap(req => { const r = setSupportAccess(db, req.user!, !!req.body?.on); void checkInNow(); return r; })); // show in the dashboard straight away
+
+  /* ---------- accounts ---------- */
+  app.get('/api/accounting/summary', session('accounts'), wrap(req => {
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const from = String(req.query.from || ''), to = String(req.query.to || '');
+    if (!day.test(from) || !day.test(to) || from > to) throw new AppError('INVALID', 'Choose a valid date range');
+    const group = (['day', 'month', 'year'].includes(String(req.query.group)) ? req.query.group : 'day') as Group;
+    if (group === 'day' && (Date.parse(to) - Date.parse(from)) / 864e5 > 1100) throw new AppError('INVALID', 'For more than 3 years, group by month or year');
+    return summarize({
+      invoices: allRows<Invoice>(db, 'invoices', 'WHERE substr(created_at,1,10) >= ? AND substr(created_at,1,10) <= ?', addDays(from, -1), addDays(to, 1)),
+      invoiceItems: allRows<InvoiceItem>(db, 'invoiceItems'), refunds: allRows(db, 'refunds'), purchases: allRows(db, 'purchases'),
+      expenses: allRows(db, 'expenses'), ledger: allRows(db, 'ledger'), medicines: allRows<Medicine>(db, 'medicines'),
+    } as never, from, to, group);
+  }));
+
+  /* ---------- automatic purchase orders ---------- */
+  app.get('/api/settings/automation', session(), wrap(() => ({ autoPo: autoPoOn(db) })));
+  app.post('/api/settings/automation', session('settings.shop'), wrap(req => {
+    setSetting(db, 'auto_po', req.body?.autoPo === false ? '0' : null);
+    sup.logEvent(db, 'settings.auto_po', { on: autoPoOn(db) }, req.user!.id, req.user!.name);
+    return { autoPo: autoPoOn(db) };
+  }));
+  app.post('/api/automation/reorder-now', session('purchases.create'), wrap(() => {
+    const r = runReorder(db);
+    return { drafts: r.drafts.map(d => d.number), low: r.low };
+  }));
+
+  /* ---------- email & SMS ---------- */
+  app.get('/api/settings/notify', session('settings.messages'), wrap(() => notify.publicConfig(notify.getConfig(db))));
+  app.post('/api/settings/notify', session('settings.messages'), wrap(req => {
+    const next = notify.mergeConfig(notify.getConfig(db, {}), req.body || {});
+    notify.saveConfig(db, next);
+    sup.logEvent(db, 'settings.messages', { email: next.email.provider, sms: next.sms.provider }, req.user!.id, req.user!.name);
+    return notify.publicConfig(notify.getConfig(db));
+  }));
+  app.post('/api/notify/test', session('settings.messages'), wrap(async req => {
+    const c = notify.getConfig(db), to = String(req.body?.to || '').trim();
+    if (req.body?.channel === 'sms') {
+      if (!notify.validPhone(to)) throw new AppError('INVALID', 'Enter a valid mobile number');
+      await notify.sendSms(c, { to, text: 'PharmaDesk test SMS — your SMS settings work.' }, opts.notifyFetch);
+    } else {
+      if (!notify.validEmail(to)) throw new AppError('INVALID', 'Enter a valid email address');
+      await notify.sendEmail(c, { to, subject: 'PharmaDesk test email', text: 'Your email settings work.', html: '<p>Your <b>PharmaDesk</b> email settings work.</p>' }, opts.notifyFetch);
+    }
+    return { ok: true };
+  }));
+  app.get('/api/notify/log', session('settings.messages'), wrap(() => ({ messages: notify.recentMessages(db, 60) })));
+  app.post('/api/notify/retry/:id', session('settings.messages'), wrap(req => { notify.retryMessage(db, String(req.params.id)); return { ok: true }; }));
+  app.post('/api/notify/receipt/:id', session('messages.send'), wrap(req => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim() : undefined, phone = typeof req.body?.phone === 'string' ? req.body.phone.trim() : undefined;
+    if (email && !notify.validEmail(email)) throw new AppError('INVALID', 'Enter a valid email address');
+    if (phone && !notify.validPhone(phone)) throw new AppError('INVALID', 'Enter a valid mobile number');
+    if (!getRow(db, 'invoices', String(req.params.id))) throw new AppError('NOT_FOUND', 'This bill has not reached the server yet — try again in a moment');
+    const n = queueReceipt(db, String(req.params.id), { email, phone });
+    if (!n) throw new AppError('INVALID', 'No email or mobile number to send to');
+    void notify.processQueue(db, { fetch: opts.notifyFetch });
+    return { queued: n };
+  }));
+  app.post('/api/notify/po/:id', session('purchases.approve'), wrap(req => {
+    const n = queuePurchaseOrder(db, String(req.params.id));
+    if (!n) throw new AppError('INVALID', 'The supplier has no email or mobile number (or the order has not reached the server yet)');
+    void notify.processQueue(db, { fetch: opts.notifyFetch });
+    return { queued: n };
+  }));
+
+  /* ---------- FBR (Pakistan, optional) ---------- */
+  app.get('/api/settings/fbr', session('settings.shop'), wrap(() => fbr.publicFbr(fbr.getFbr(db))));
+  app.post('/api/settings/fbr', session('settings.shop'), wrap(req => {
+    try { const c = fbr.saveFbr(db, req.body || {}); sup.logEvent(db, 'settings.fbr', { on: c.enabled, sandbox: c.sandbox }, req.user!.id, req.user!.name); return fbr.publicFbr(c); }
+    catch (e) { throw new AppError('INVALID', (e as Error).message); }
+  }));
+  app.post('/api/fbr/invoice/:id', session('pos'), wrap(async req => {
+    try { return { fbrNumber: await fbr.reportInvoice(db, String(req.params.id), opts.fbrFetch, 8000) }; }
+    catch (e) { return { fbrNumber: null, error: (e as Error).message }; } // the bill still prints; it is retried later
+  }));
+
+  /* ---------- storage ---------- */
+  app.get('/api/storage', session(), wrap(() => {
+    const size = (db.prepare(`SELECT page_count * page_size AS b FROM pragma_page_count(), pragma_page_size()`).get() as { b: number }).b;
+    const count = (t: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+    let free: number | null = null;
+    try { const st = fs.statfsSync(opts.dataDir || '.'); free = Number(st.bavail) * Number(st.bsize); } catch { /* unknown */ }
+    return { dbBytes: size, freeBytes: free, bills: count('invoices'), items: count('medicines'), purchases: count('purchases') };
+  }));
 
   /* ---------- AI ---------- */
   app.post('/api/ai/rx', session('ai'), wrap(req => ai.parsePrescription(db, req.body || {}, { fetch: opts.aiFetch }, req.device!.did)));

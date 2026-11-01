@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS: Settings = {
   storeName: 'My Medical Store', address: '', phone: '', ntn: '', strn: '', drugLicense: '', logoDataUrl: '',
   currency: 'Rs', defaultGstPct: 0, pricesIncludeGst: true,
   expiryWindows: [30, 60, 90], blockExpired: true, lowStockDefault: 10,
-  receiptWidth: '80mm', receiptFooter: 'Thank you! Medicines are returnable with this receipt within 7 days.',
+  receiptWidth: '80mm', receiptFooter: 'Thank you! Get well soon.',
   language: 'en', theme: 'system', printer: 'browser', autoPrint: true, interactionCheck: true,
 };
 

@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'framer-motion';
 import { AppProvider, useStore } from './store.tsx';
 import { Toasts , ConfirmHost} from './components.tsx';
+import { Accounts } from './screens/Accounts.tsx';
 import { OwnerSetup, PairScreen, LoginScreen, LicenseGate, supportLogin, type LicenseInfo } from './screens/Auth.tsx';
 supportLogin.capture();
 import { Shell, MoreMenu } from './screens/Shell.tsx';
@@ -68,7 +69,7 @@ function App() {
   const r = route === 'more' || route === 'about' || (MODULES.some(m => m.key === route) && can(user, route)) ? route : first;
   const screens: Record<string, React.ReactNode> = {
     dashboard: <Dashboard />, pos: <Pos />, invoices: <Invoices />, inventory: <Inventory />, purchases: <Purchases />,
-    suppliers: <Parties kind="suppliers" />, patients: <Parties kind="patients" />, alerts: <Alerts />, reports: <Reports />,
+    suppliers: <Parties kind="suppliers" />, patients: <Parties kind="patients" />, alerts: <Alerts />, reports: <Reports />, accounts: <Accounts />,
     users: <Users />, settings: <Settings />, more: <MoreMenu go={go} />, about: <About />,
   };
   return <Shell route={r} go={go}><ErrorBoundary key={r + navKey}>{screens[r]}</ErrorBoundary></Shell>;

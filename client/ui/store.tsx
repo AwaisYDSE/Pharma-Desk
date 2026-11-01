@@ -1,6 +1,10 @@
 // App state: device database, sync, alerts, printing, language, theme, toasts.
 // © Awais Amin
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { setCurrency } from './i18n.ts';
+import { billing } from '../../shared/region.ts';
+/** The old built-in bill message; shops that never changed it get the new neutral one. */
+const OLD_FOOTER = 'Thank you! Medicines are returnable with this receipt within 7 days.';
 import { openCtx, getMeta, setMeta, type Ctx } from '../core/db.ts';
 import { ServerClient, SyncEngine } from '../core/sync.ts';
 import { ExpiryMonitor, type Alert } from '../core/monitor.ts';
@@ -41,6 +45,8 @@ export function AppProvider({ children, onReady }: { children: (s: Store | null)
   const [user, setUser] = useState<User | null>(null);
   const [online, setOnline] = useState(false);
   const [pending, setPending] = useState(0);
+  // Ask the browser never to clear this device's copy of the shop data on its own (low disk etc.).
+  useEffect(() => { try { void navigator.storage?.persist?.().catch(() => {}); } catch { /* old browser */ } }, []);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [version, setVersion] = useState(0);
   const [lang, setLangState] = useState<Lang>('en');
@@ -116,13 +122,13 @@ export function AppProvider({ children, onReady }: { children: (s: Store | null)
     })().catch(e => { console.error(e); document.body.innerHTML = `<pre style="padding:20px;color:#b91c1c">PharmaDesk could not start: ${String(e?.message || e)}</pre>`; });
   }, []); // eslint-disable-line
 
-  useEffect(() => { if (base.current) base.current.ctx.db.shop.get('shop').then(s => setShop(s || null)).catch(() => {}); }, [version]);
+  useEffect(() => { if (base.current) base.current.ctx.db.shop.get('shop').then(s => { setShop(s || null); setCurrency(billing(s?.billing).currency); }).catch(() => {}); }, [version]);
 
   const value = useMemo<Store | null>(() => {
     if (!base.current || !settings) return null;
     const b = base.current;
     // Shop name, logo and receipt details come from the synced shop profile (same on every device).
-    const merged: Settings = shop ? { ...settings, storeName: shop.name || settings.storeName, logoDataUrl: shop.logo || '', address: shop.address ?? settings.address, phone: shop.phone ?? settings.phone, ntn: shop.ntn ?? settings.ntn, strn: shop.strn ?? settings.strn, drugLicense: shop.drugLicense ?? settings.drugLicense, receiptFooter: shop.receiptFooter || settings.receiptFooter } : settings;
+    const merged: Settings = shop ? { ...settings, storeName: shop.name || settings.storeName, logoDataUrl: shop.logo || '', address: shop.address ?? settings.address, phone: shop.phone ?? settings.phone, ntn: shop.ntn ?? settings.ntn, strn: shop.strn ?? settings.strn, drugLicense: shop.drugLicense ?? settings.drugLicense, receiptFooter: shop.receiptFooter === OLD_FOOTER ? settings.receiptFooter : (shop.receiptFooter ?? settings.receiptFooter) } : settings;
     return {
       ...b, settings: merged, shop, user, setUser, online, pending, alerts, version, lang, isServerPc, toasts,
       setSettings: async p => { setSettingsState(await saveSettings(b.ctx.db, p)); if (p.theme) document.documentElement.dataset.theme = p.theme === 'system' ? '' : p.theme; },

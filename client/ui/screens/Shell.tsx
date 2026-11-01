@@ -12,7 +12,7 @@ import { LANGS } from '../i18n.ts';
 
 const ICONS: Record<string, string> = {
   dashboard: 'grid', pos: 'cart', invoices: 'receipt', inventory: 'box', purchases: 'truck', suppliers: 'factory',
-  patients: 'users', alerts: 'bell', reports: 'chart', ai: 'spark', users: 'shield', settings: 'gear',
+  patients: 'users', alerts: 'bell', reports: 'chart', accounts: 'wallet', ai: 'spark', users: 'shield', settings: 'gear',
 };
 
 export function Shell({ route, go, children }: { route: string; go: (r: string) => void; children: React.ReactNode }) {
@@ -71,6 +71,13 @@ export function Shell({ route, go, children }: { route: string; go: (r: string) 
           <button type="button" className="btn sm" onClick={() => logout()}><Icon name="logout" size={16} /><span className="hide-sm">{t('logout')}</span></button>
         </header>
         {shop?.planLock && <PlanBanner lock={shop.planLock} />}
+        <AnimatePresence>{!ctx.standalone && ctx.pairing && !online && (
+          <motion.div key="off" className="offline-banner" role="status" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
+            <Icon name="server" size={16} />
+            <span><strong>Server offline.</strong> {pending > 0 ? `${pending} change(s) are saved on this device and will be sent automatically when the server is back.` : 'Your changes are saved on this device and will be sent automatically when the server is back.'} You can keep working.</span>
+          </motion.div>)}
+          {!ctx.standalone && online && pending > 0 && <motion.div key="sync" className="offline-banner syncing" role="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Icon name="server" size={16} /><span>Server is back — sending {pending} saved change(s)…</span></motion.div>}
+        </AnimatePresence>
         {shop?.supportAccess && <div className="support-banner" role="status"><Icon name="shield" size={16} /> <span>Support access is ON — the developer can connect to help this shop. The owner can turn it off in Settings.</span></div>}
         <AnimatePresence mode="wait">
           <motion.main key={route} className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .18 }}>

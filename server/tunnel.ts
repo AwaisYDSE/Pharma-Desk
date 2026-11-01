@@ -101,9 +101,11 @@ export function sealBeacon(payload: object, beaconKeyB64: string): string {
 
 export async function publishBeacon(serverId: string, beaconKey: string, endpoints: Endpoints, log: (m: string) => void, f: typeof fetch = fetch) {
   try {
-    const body = sealBeacon({ v: 1, sid: serverId, at: Date.now(), tailscale: endpoints.tailscale, cloudflare: endpoints.cloudflare }, beaconKey);
-    await f(`${BEACON_HOST}/${beaconTopic(serverId)}`, { method: 'POST', body, headers: { 'Cache': 'yes' } });
-  } catch (e) { log(`Could not publish address beacon: ${(e as Error).message}`); }
+    const body = sealBeacon({ v: 1, sid: serverId, at: Date.now(), tailscale: endpoints.tailscale, cloudflare: endpoints.cloudflare, lan: endpoints.lan }, beaconKey);
+    const r = await f(`${BEACON_HOST}/${beaconTopic(serverId)}`, { method: 'POST', body, headers: { 'Cache': 'yes' }, signal: AbortSignal.timeout(15_000) });
+    if (!r.ok) throw new Error(`relay answered ${r.status}`);
+    return true;
+  } catch (e) { log(`Could not publish address beacon: ${(e as Error).message}`); return false; }
 }
 
 /* ---------------- QR pairing payload ---------------- */

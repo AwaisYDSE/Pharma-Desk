@@ -9,6 +9,9 @@ import { ensureIdentity, getIdentity } from './identity.ts';
 import { createApp } from './app.ts';
 import { serverStarted, serverHeartbeat, serverStopped, openSessionTable, logEvent } from './supervision.ts';
 import { startVendorLink } from './vendor-link.ts';
+import { processQueue } from './notify.ts';
+import { runReorder } from './automation.ts';
+import { retryPending } from './fbr.ts';
 import { lanUrls, startTailscale, CloudflareTunnel, publishBeacon, pairingPayload, pairingQr, type Endpoints } from './tunnel.ts';
 
 const PORT = Number(process.env.PORT || 4317);
@@ -52,7 +55,7 @@ const runId = serverStarted(db);
 if (restored) logEvent(db, 'server.restored', { snapshot: restored });
 
 const endpoints: Endpoints = { lan: lanUrls(PORT), tailscale: null, cloudflare: null };
-const app = createApp(db, { endpoints: () => endpoints, staticDir: process.env.PHARMADESK_APP || path.resolve(import.meta.dirname, '..', 'dist') });
+const app = createApp(db, { dataDir: DATA, endpoints: () => endpoints, staticDir: process.env.PHARMADESK_APP || path.resolve(import.meta.dirname, '..', 'dist') });
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
   log(`PharmaDesk server "${id.name}" running on port ${PORT}`);
@@ -61,12 +64,23 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   for (const u of endpoints.lan) log(`Shop Wi-Fi:      ${u}`);
   if (process.env.NO_TUNNEL !== '1') {
     endpoints.tailscale = await startTailscale(PORT, log);
-    const cf = new CloudflareTunnel(PORT, {
-      log,
-      onUrl: url => { endpoints.cloudflare = url; publishBeacon(id.serverId, id.beaconKey, endpoints, log); },
-    });
+    // Phones find this PC's current address through the encrypted beacon. Announce it whenever it
+    // changes, keep re-announcing (the relay forgets after 12 h, and the first try after a restart can
+    // fail while the internet is still coming up), and re-check Wi-Fi / Tailscale after sleep or restart.
+    let announced = '', okAt = 0;
+    const announce = async (force = false) => {
+      const sig = JSON.stringify(endpoints);
+      if (!force && sig === announced && Date.now() - okAt < 30 * 60_000) return;
+      if (await publishBeacon(id.serverId, id.beaconKey, endpoints, log)) { announced = sig; okAt = Date.now(); }
+    };
+    const cf = new CloudflareTunnel(PORT, { log, onUrl: url => { endpoints.cloudflare = url; void announce(true); } });
     cf.start();
     process.on('exit', () => cf.stop());
+    setInterval(async () => {
+      endpoints.lan = lanUrls(PORT);
+      if (!endpoints.tailscale) endpoints.tailscale = await startTailscale(PORT, () => {});
+      void announce();
+    }, 60_000).unref?.();
   }
   startVendorLink(db, { endpoints: () => endpoints, log });
   const qr = await pairingQr(pairingPayload(id.serverId, getIdentity(db)!.name, endpoints));
@@ -82,6 +96,14 @@ server.on('error', (e: NodeJS.ErrnoException) => {
 });
 
 const beat = setInterval(() => serverHeartbeat(db, runId), 30_000);
+// Background jobs. Each is wrapped so a failure is logged and the server keeps running.
+const safe = (name: string, fn: () => unknown) => async () => { try { await fn(); } catch (e) { log(`${name} failed: ${(e as Error).message}`); } };
+let sending = false;
+setInterval(safe('Sending messages', async () => { if (sending) return; sending = true; try { await processQueue(db); } finally { sending = false; } }), 30_000).unref();
+setTimeout(safe('Stock check', () => runReorder(db)), 120_000).unref();
+setInterval(safe('Stock check', () => runReorder(db)), 15 * 60_000).unref();
+let fbrBusy = false;
+setInterval(safe('FBR reporting', async () => { if (fbrBusy) return; fbrBusy = true; try { await retryPending(db); } finally { fbrBusy = false; } }), 2 * 60_000).unref();
 const snap = () => { try { log(`Backup saved: ${path.basename(snapshot(db, BACKUPS))}`); } catch (e) { log(`Backup failed: ${(e as Error).message}`); } };
 setTimeout(snap, 60_000);
 const snapTimer = setInterval(snap, 6 * 3600_000);

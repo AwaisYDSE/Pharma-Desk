@@ -16,7 +16,7 @@ export { en as EN_DICT };
 
 const en: Dict = {
   appName: 'PharmaDesk', dashboard: 'Dashboard', pos: 'Point of Sale', invoices: 'Invoices', inventory: 'Inventory',
-  purchases: 'Purchases', suppliers: 'Suppliers', patients: 'Patients', alerts: 'Alerts', reports: 'Reports', ai: 'AI assistant',
+  purchases: 'Purchases', suppliers: 'Suppliers', patients: 'Patients', alerts: 'Alerts', reports: 'Reports', accounts: 'Accounts', ai: 'AI assistant',
   users: 'Users & Access', settings: 'Settings', logout: 'Log out', login: 'Log in', username: 'Username', pin: 'PIN',
   search: 'Search medicine or scan barcode', expiry: 'Expiry', batch: 'Batch', qty: 'Qty', price: 'Price', amount: 'Amount',
   subtotal: 'Subtotal', discount: 'Discount', gst: 'GST', total: 'Total', checkout: 'Checkout & Print', cash: 'Cash',
@@ -41,7 +41,7 @@ const en: Dict = {
 
 const ur: Dict = {
   appName: 'فارما ڈیسک', dashboard: 'ڈیش بورڈ', pos: 'فوری بلنگ', invoices: 'بل', inventory: 'سٹاک / ادویات', purchases: 'خریداری',
-  suppliers: 'سپلائرز', patients: 'مریض', alerts: 'الرٹس', reports: 'رپورٹس', ai: 'اے آئی معاون', users: 'صارفین اور اجازتیں', settings: 'ترتیبات',
+  suppliers: 'سپلائرز', patients: 'مریض', alerts: 'الرٹس', reports: 'رپورٹس', accounts: 'حسابات', ai: 'اے آئی معاون', users: 'صارفین اور اجازتیں', settings: 'ترتیبات',
   logout: 'لاگ آؤٹ', login: 'لاگ اِن', username: 'یوزر نیم', pin: 'پن', search: 'دوا کا نام یا بارکوڈ', expiry: 'تاریخِ انقضا', batch: 'بیچ',
   qty: 'تعداد', price: 'قیمت', amount: 'رقم', subtotal: 'ذیلی کل', discount: 'رعایت', gst: 'جی ایس ٹی', total: 'کل رقم',
   checkout: 'ادائیگی اور رسید پرنٹ کریں', cash: 'نقد', card: 'کارڈ / جاز کیش', credit: 'ادھار', received: 'وصول', change: 'بقایا', patient: 'مریض',
@@ -65,7 +65,7 @@ const ur: Dict = {
 
 const ar: Dict = {
   appName: 'فارما ديسك', dashboard: 'لوحة التحكم', pos: 'نقطة البيع', invoices: 'الفواتير', inventory: 'المخزون', purchases: 'المشتريات',
-  suppliers: 'الموردون', patients: 'المرضى', alerts: 'التنبيهات', reports: 'التقارير', ai: 'المساعد الذكي', users: 'المستخدمون والصلاحيات', settings: 'الإعدادات',
+  suppliers: 'الموردون', patients: 'المرضى', alerts: 'التنبيهات', reports: 'التقارير', accounts: 'الحسابات', ai: 'المساعد الذكي', users: 'المستخدمون والصلاحيات', settings: 'الإعدادات',
   logout: 'تسجيل الخروج', login: 'تسجيل الدخول', username: 'اسم المستخدم', pin: 'الرمز السري', search: 'ابحث عن دواء أو امسح الباركود', expiry: 'تاريخ الانتهاء',
   batch: 'التشغيلة', qty: 'الكمية', price: 'السعر', amount: 'المبلغ', subtotal: 'المجموع الفرعي', discount: 'الخصم', gst: 'ضريبة المبيعات', total: 'الإجمالي',
   checkout: 'الدفع والطباعة', cash: 'نقدًا', card: 'بطاقة / جاز كاش', credit: 'آجل (دين)', received: 'المبلغ المستلم', change: 'الباقي', patient: 'المريض',
@@ -88,7 +88,7 @@ const ar: Dict = {
 
 const hi: Dict = {
   appName: 'फार्माडेस्क', dashboard: 'डैशबोर्ड', pos: 'बिलिंग (पॉइंट ऑफ़ सेल)', invoices: 'बिल', inventory: 'स्टॉक / दवाइयाँ', purchases: 'खरीद',
-  suppliers: 'सप्लायर', patients: 'मरीज़', alerts: 'अलर्ट', reports: 'रिपोर्ट', ai: 'एआई सहायक', users: 'उपयोगकर्ता और अनुमतियाँ', settings: 'सेटिंग्स',
+  suppliers: 'सप्लायर', patients: 'मरीज़', alerts: 'अलर्ट', reports: 'रिपोर्ट', accounts: 'हिसाब-किताब', ai: 'एआई सहायक', users: 'उपयोगकर्ता और अनुमतियाँ', settings: 'सेटिंग्स',
   logout: 'लॉग आउट', login: 'लॉग इन', username: 'यूज़रनेम', pin: 'पिन', search: 'दवा का नाम या बारकोड', expiry: 'समाप्ति तिथि', batch: 'बैच',
   qty: 'मात्रा', price: 'कीमत', amount: 'राशि', subtotal: 'उप-योग', discount: 'छूट', gst: 'जीएसटी', total: 'कुल',
   checkout: 'भुगतान और प्रिंट', cash: 'नकद', card: 'कार्ड / जैज़कैश', credit: 'उधार', received: 'प्राप्त राशि', change: 'बाकी (वापसी)', patient: 'मरीज़',
@@ -112,7 +112,7 @@ const hi: Dict = {
 
 const es: Dict = {
   appName: 'PharmaDesk', dashboard: 'Panel', pos: 'Punto de venta', invoices: 'Facturas', inventory: 'Inventario', purchases: 'Compras',
-  suppliers: 'Proveedores', patients: 'Pacientes', alerts: 'Alertas', reports: 'Informes', ai: 'Asistente IA', users: 'Usuarios y acceso', settings: 'Ajustes',
+  suppliers: 'Proveedores', patients: 'Pacientes', alerts: 'Alertas', reports: 'Informes', accounts: 'Cuentas', ai: 'Asistente IA', users: 'Usuarios y acceso', settings: 'Ajustes',
   logout: 'Cerrar sesión', login: 'Entrar', username: 'Usuario', pin: 'PIN', search: 'Buscar medicamento o escanear código', expiry: 'Caducidad', batch: 'Lote',
   qty: 'Cant.', price: 'Precio', amount: 'Importe', subtotal: 'Subtotal', discount: 'Descuento', gst: 'IVA (GST)', total: 'Total',
   checkout: 'Cobrar e imprimir', cash: 'Efectivo', card: 'Tarjeta / JazzCash', credit: 'Crédito (fiado)', received: 'Recibido', change: 'Cambio', patient: 'Paciente',
@@ -153,7 +153,10 @@ export function applyLang(lang: Lang, doc: Document = document) {
 }
 
 /** Money with Rs and local digits grouping (12,34,567 style for Urdu/Hindi). */
-export function money(paisa: number, lang: Lang, currency = 'Rs') {
+/** Currency sign chosen by the owner (Settings → Bills → Region). */
+let CURRENCY = 'Rs';
+export const setCurrency = (c: string) => { CURRENCY = (c || 'Rs').slice(0, 6); };
+export function money(paisa: number, lang: Lang, currency = CURRENCY) {
   const v = (paisa || 0) / 100;
   const locale = lang === 'ur' ? 'ur-PK' : lang === 'hi' ? 'en-IN' : lang === 'ar' ? 'ar-AE' : 'en-PK';
   const n = v.toLocaleString(locale === 'ar-AE' ? 'en-PK' : locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });

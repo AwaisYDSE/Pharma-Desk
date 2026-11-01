@@ -8,6 +8,7 @@ import { saveRecord } from '../../core/inventory.ts';
 import { LANGS } from '../i18n.ts';
 import { can } from '../../../shared/permissions.ts';
 import type { Settings as S } from '../../core/settings.ts';
+import { BillsCard, AutomationCard, MessagesCard, FbrCard, StorageCard } from './SettingsMore.tsx';
 
 export function Settings() {
   const { t, settings, setSettings, lang, setLang, user, isServerPc, client, online, ctx, toast, shop } = useStore();
@@ -32,7 +33,6 @@ export function Settings() {
           <PhotoPicker label="Shop logo (shown on every device and on receipts)" shape="square" png value={logo} onChange={setLogo} />
           {fld('storeName', t('shopName'))}{fld('address', 'Address')}{fld('phone', t('phone'))}
           <div className="grid g-auto" style={{ gap: 10 }}>{fld('ntn', 'NTN')}{fld('strn', 'STRN')}{fld('drugLicense', 'Drug licence no.')}</div>
-          {fld('receiptFooter', 'Receipt footer')}
           <label className="row"><Toggle on={f.pricesIncludeGst} onChange={v => setF({ ...f, pricesIncludeGst: v })} label="Prices include GST" /> Shelf prices already include GST</label>
           <label className="field">Receipt paper<select className="input" value={f.receiptWidth} onChange={e => setF({ ...f, receiptWidth: e.target.value as S['receiptWidth'] })}><option>80mm</option><option>58mm</option><option>A4</option></select></label>
           <label className="field">Printer<select className="input" value={f.printer} onChange={e => setF({ ...f, printer: e.target.value as S['printer'] })}><option value="browser">Normal printer (print dialog)</option><option value="serial">USB thermal printer (Chrome/Edge)</option></select></label>
@@ -41,7 +41,7 @@ export function Settings() {
           <button type="button" className="btn primary" disabled={!can(user, 'settings.shop')} title={can(user, 'settings.shop') ? '' : 'Not allowed to change shop details'} onClick={async () => {
             try {
               await setSettings(f);
-              await saveRecord(ctx, 'shop', { ...(shop || {}), id: 'shop', name: f.storeName, logo, address: f.address, phone: f.phone, ntn: f.ntn, strn: f.strn, drugLicense: f.drugLicense, receiptFooter: f.receiptFooter } as never);
+              await saveRecord(ctx, 'shop', { ...(shop || {}), id: 'shop', name: f.storeName, logo, address: f.address, phone: f.phone, ntn: f.ntn, strn: f.strn, drugLicense: f.drugLicense } as never);
               toast('ok', t('save'));
             } catch (e) { toast('bad', (e as Error).message); }
           }}>{t('save')}</button>
@@ -64,6 +64,9 @@ export function Settings() {
             <p className="small faint" style={{ margin: 0 }}>Without a key, or when the AI limit is used up, PharmaDesk uses its built-in offline reader and interaction list — billing never stops.</p>
           </section>}
           {user?.owner && <SupportCard />}
+          <AutomationCard />
+          {can(user, 'settings.shop') && <FbrCard />}
+          <StorageCard />
           <section className="card col"><h2>This device</h2>
             {ctx.standalone
               ? <span className="small muted"><strong>This device only.</strong> All data is saved on this device. Make a backup regularly and keep it safe (e.g. on a USB stick or in your email).</span>
@@ -75,6 +78,10 @@ export function Settings() {
             <button type="button" className="btn danger" onClick={async () => { if (await confirmAsk({ message: ctx.standalone ? 'Erase everything on this device? This cannot be undone — download a backup first.' : 'Disconnect this device from the shop and delete its copy of the data? Unsynced sales will be lost.', danger: true, confirmText: ctx.standalone ? 'Erase' : 'Disconnect' })) { await ctx.db.delete(); location.reload(); } }}>{ctx.standalone ? 'Erase this device' : 'Disconnect this device'}</button>
           </section>
         </div>
+      </div>
+      <div className="grid g-2" style={{ alignItems: 'start' }}>
+        <BillsCard />
+        {can(user, 'settings.messages') && <MessagesCard />}
       </div>
     </>
   );

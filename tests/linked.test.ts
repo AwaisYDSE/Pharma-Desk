@@ -66,7 +66,7 @@ describe('Modules are linked end to end', () => {
     expect(r.message).toMatch(/created in Inventory/);
   });
 
-  it('a purchase needs a real supplier, whole quantities and a batch + future expiry', async () => {
+  it('a purchase needs a real supplier, whole quantities and a batch + expiry before restocking', async () => {
     const { ctx } = await ownerDevice();
     const med = await saveMedicine(ctx, { name: 'Flagyl', generic: 'Metronidazole', salePrice: 400 });
     const sup = await saveRecord<Supplier>(ctx, 'suppliers', { name: 'S' });
@@ -74,7 +74,9 @@ describe('Modules are linked end to end', () => {
     await expect(savePurchase(ctx, { supplierId: 'nope', date: isoDate(), status: 'ordered' }, [line])).rejects.toThrow(/supplier/i);
     await expect(savePurchase(ctx, { supplierId: sup.id, date: isoDate(), status: 'ordered' }, [{ ...line, qty: 2.5 }])).rejects.toThrow(/whole number/);
     await expect(savePurchase(ctx, { supplierId: sup.id, date: isoDate(), status: 'ordered' }, [{ ...line, qty: -3 }])).rejects.toThrow(/whole number/);
-    await expect(savePurchase(ctx, { supplierId: sup.id, date: isoDate(), status: 'ordered' }, [{ ...line, batchNo: ' ' }])).rejects.toThrow(/batch/);
+    // Batch/expiry may be filled in when the stock arrives — but restocking without them is refused.
+    const po = await savePurchase(ctx, { supplierId: sup.id, date: isoDate(), status: 'sent' }, [{ ...line, batchNo: '', expiryDate: '' }]);
+    await expect(receivePurchase(ctx, po.id)).rejects.toThrow(/batch/i);
   });
 
   it('deleted items cannot be sold or bought, but their history stays', async () => {

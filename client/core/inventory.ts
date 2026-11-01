@@ -3,7 +3,8 @@
 import { uuid, isoDate, AppError, PermissionError } from '../../shared/util.ts';
 import { pendingBatchId } from '../../shared/fefo.ts';
 import { can, rowPerm } from '../../shared/permissions.ts';
-import type { Medicine, Batch, Purchase, PurchaseItem, LedgerEntry, SyncTable, Synced, Delta, OpRow } from '../../shared/types.ts';
+import type { Medicine, Batch, Purchase, PurchaseItem, LedgerEntry, SyncTable, Synced, Delta, OpRow, PurchaseStatus, Expense } from '../../shared/types.ts';
+import { TRANSITIONS, normStatus, canMove } from '../../shared/purchase-flow.ts';
 import { stamp, emit, nextNumber, type Ctx } from './db.ts';
 import { makeOp, enqueue } from './outbox.ts';
 import { logAuditRow } from './audit.ts';
@@ -93,11 +94,12 @@ export async function savePurchase(ctx: Ctx, purchase: Partial<Purchase> & { sup
       if (!Number.isInteger(i.qty) || i.qty <= 0) throw new AppError('INVALID_QTY', `${m.name}: quantity must be a whole number above 0`);
       if (!Number.isInteger(i.freeQty || 0) || (i.freeQty || 0) < 0) throw new AppError('INVALID_QTY', `${m.name}: free units must be 0 or more`);
       if (!(i.costPrice >= 0)) throw new AppError('INVALID_PRICE', `${m.name}: cost price is not valid`);
-      if (!i.batchNo?.trim() || !i.expiryDate) throw new AppError('BATCH_REQUIRED', `${m.name}: batch number and expiry are required`);
+      // Batch and expiry can be filled in when the stock arrives; they are checked when restocking.
     }
     if (!purchase.supplierId || !(await db.suppliers.get(purchase.supplierId))) throw new AppError('SUPPLIER_REQUIRED', 'Choose a supplier that exists in Suppliers');
     const old = purchase.id ? await db.purchases.get(purchase.id) : undefined;
     if (old?.status === 'received') throw new AppError('LOCKED', 'A received purchase cannot be edited');
+    if (old?.status === 'cancelled') throw new AppError('LOCKED', 'This purchase was cancelled');
     const p: Purchase = {
       status: 'draft', paid: 0, date: isoDate(), ...old, ...purchase,
       id: purchase.id || uuid(), number: old?.number || purchase.number || await nextNumber(ctx, 'PO'),
@@ -131,9 +133,10 @@ export async function receivePurchase(ctx: Ctx, purchaseId: string) {
     const p = await db.purchases.get(purchaseId);
     if (!p) throw new AppError('NOT_FOUND', 'Purchase not found');
     if (p.status === 'received') throw new AppError('DUPLICATE', 'This purchase was already received');
+    if (p.status === 'cancelled') throw new AppError('LOCKED', 'This purchase was cancelled');
     const items = (await db.purchaseItems.where('purchaseId').equals(purchaseId).toArray()).filter(i => !i.deleted);
     if (!items.length) throw new AppError('EMPTY', 'Add at least one line');
-    for (const it of items) if (!it.batchNo || !it.expiryDate) throw new AppError('BATCH_REQUIRED', 'Every line needs a batch number and expiry date');
+    for (const it of items) if (!it.batchNo || !it.expiryDate) throw new AppError('BATCH_REQUIRED', 'Fill in the batch number and expiry date of every item first (Modify), then restock');
     const deltas: Delta[] = [];
     const priceRows: OpRow[] = [];
     created = [];
@@ -227,4 +230,43 @@ export async function cancelPurchase(ctx: Ctx, purchaseId: string) {
   });
   emit(ctx, 'data-changed', { tbl: 'purchases' });
   return next;
+}
+
+/** Move a purchase order one step: draft → waiting approval → sent to supplier → received (checking). */
+export async function setPurchaseStatus(ctx: Ctx, purchaseId: string, to: PurchaseStatus) {
+  const p = await ctx.db.purchases.get(purchaseId);
+  if (!p) throw new AppError('NOT_FOUND', 'Purchase not found');
+  const step = (TRANSITIONS[normStatus(p.status)] || []).find(t => t.to === to);
+  if (!step || !canMove(p.status, to)) throw new AppError('INVALID', 'This step is not possible for this purchase');
+  if (!can(ctx.user, step.perm)) throw new PermissionError(step.perm === 'purchases.approve' ? 'Only someone allowed to approve purchases can do this' : undefined);
+  const now = new Date().toISOString();
+  const next: Purchase = {
+    ...p, status: to, hlc: stamp(ctx),
+    ...(to === 'pending_approval' ? { submittedBy: ctx.user!.id } : {}),
+    ...(to === 'sent' ? { approvedBy: ctx.user!.id, sentAt: now } : {}),
+    ...(to === 'arrived' ? { arrivedAt: now } : {}),
+  };
+  const db = ctx.db;
+  await db.transaction('rw', db.purchases, db.outbox, db.audit, async () => {
+    await db.purchases.put(next);
+    const a = await logAuditRow(ctx, `purchase.${to}`, { entity: 'purchases', entityId: p.id, details: { number: p.number, from: p.status, to } });
+    await enqueue(ctx, makeOp(ctx, 'upsert', [{ tbl: 'purchases', row: next }, { tbl: 'audit', row: a }]));
+  });
+  emit(ctx, 'data-changed', { tbl: 'purchases' });
+  return next;
+}
+
+/** Add or change an expense (rent, salaries, electricity…). */
+export async function saveExpense(ctx: Ctx, e: Partial<Expense> & { amount: number; category: string; date: string }) {
+  if (!can(ctx.user, e.id ? 'accounts.edit' : 'accounts.create')) throw new PermissionError();
+  if (!Number.isInteger(e.amount) || e.amount <= 0) throw new AppError('INVALID', 'Enter an amount above 0');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(e.date)) throw new AppError('INVALID', 'Choose the date');
+  return saveRecord<Expense>(ctx, 'expenses', { payMethod: 'cash', note: '', userId: ctx.user!.id, ...e, category: e.category.trim() || 'Other' } as never);
+}
+
+export async function deleteExpense(ctx: Ctx, id: string) {
+  if (!can(ctx.user, 'accounts.delete')) throw new PermissionError();
+  const e = await ctx.db.expenses.get(id);
+  if (!e) throw new AppError('NOT_FOUND', 'Expense not found');
+  return saveRecord<Expense>(ctx, 'expenses', { ...e, deleted: true } as never);
 }

@@ -68,6 +68,7 @@ export function neededPerms(db: DB, op: Op): string[] {
   const need = new Set<string>();
   if (op.kind === 'sale') need.add('pos');
   if (op.kind === 'void') need.add('invoices.void');
+  if (op.kind === 'refund') need.add('invoices.refund');
   if (op.kind === 'stock') {
     if (op.rows.some(r => r.tbl === 'purchases')) need.add('purchases.receive');
     else if (op.deltas.some(d => d.create)) need.add('inventory.add_stock');

@@ -4,4 +4,5 @@ import { P2 } from './phrases-2.ts';
 import { P3 } from './phrases-3.ts';
 import { P4 } from './phrases-4.ts';
 import { P5 } from './phrases-5.ts';
-export const PHRASES = { ...P1, ...P2, ...P3, ...P4, ...P5 };
+import { P6 } from './phrases-6.ts';
+export const PHRASES = { ...P1, ...P2, ...P3, ...P4, ...P5, ...P6 };

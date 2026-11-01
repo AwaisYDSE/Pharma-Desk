@@ -13,9 +13,12 @@ import { isoDate, daysBetween, addDays } from '../../../shared/util.ts';
 import { SearchIndex } from '../../../shared/search.ts';
 import {
   saveMedicine, deleteMedicine, saveRecord, addOpeningStock, adjustStock, stockMap, savePurchase, receivePurchase,
-  cancelPurchase, recordPayment, partyBalance,
+  cancelPurchase, recordPayment, partyBalance, setPurchaseStatus,
 } from '../../core/inventory.ts';
-import { voidInvoice } from '../../core/pos.ts';
+import { PO_STEPS, TRANSITIONS, normStatus, statusLabel, stepIndex, isOpen } from '../../../shared/purchase-flow.ts';
+import { voidInvoice, refundItems, returnedQty } from '../../core/pos.ts';
+
+const INV_STATUS: Record<string, [string, string]> = { paid: ['Paid', 'ok'], credit: ['Unpaid (udhaar)', 'warn'], partial_refund: ['Partially refunded', 'info'], refunded: ['Refunded', 'info'], void: ['Cancelled', 'bad'] };
 import { MedThumb, MedName } from '../MedIcon.tsx';
 import { receiptData, downloadReceipt } from '../../core/print.ts';
 import { navigate, takeIntent } from '../nav.ts';
@@ -83,10 +86,10 @@ export function Inventory() {
 export function MedicineForm({ med, onClose, onSaved }: { med: Partial<Medicine>; onClose: () => void; onSaved: (m: Medicine) => void }) {
   const { ctx, t } = useStore();
   const [f, setF] = useState({ ...med, price: med.salePrice ? String(med.salePrice / 100) : '', gst: med.gstBp ? String(med.gstBp / 100) : '0' });
+  const supList = useLive(() => ctx.db.suppliers.filter(x => !x.deleted).toArray(), [], [] as Supplier[]);
   const a = useAsync(async () => {
     const name = String(f.name || '').trim();
     if (!name) throw new Error('Name is required');
-    if (!String(f.generic || '').trim()) throw new Error('Formula (generic name) is required');
     const price = Number(f.price);
     if (!(price >= 0) || price > 10_000_000) throw new Error('Enter a valid sale price');
     const dup = (await ctx.db.medicines.toArray()).find(m => !m.deleted && m.id !== med.id && m.name.trim().toLowerCase() === name.toLowerCase() && (m.strength || '') === (f.strength || ''));
@@ -110,7 +113,8 @@ export function MedicineForm({ med, onClose, onSaved }: { med: Partial<Medicine>
           <div className="form-grid">
             <label className="field">{t('salePrice')} (Rs)<input className="input num" inputMode="decimal" required placeholder="0.00" value={f.price} onChange={e => setF({ ...f, price: e.target.value.replace(/[^\d.]/g, '') })} /></label>
             <label className="field">{t('gst')} %<input className="input num" inputMode="decimal" value={f.gst} onChange={e => setF({ ...f, gst: e.target.value.replace(/[^\d.]/g, '') })} /></label>
-            {fld('reorderLevel', t('reorderLevel'), { inputMode: 'numeric' })}{fld('rackNo', 'Rack / shelf', { maxLength: 20 })}
+            {fld('reorderLevel', t('reorderLevel'), { inputMode: 'numeric' })}{fld('reorderQty', 'Reorder quantity', { inputMode: 'numeric' })}
+            <label className="field">Default supplier (for automatic orders)<select className="input" value={String(f.defaultSupplierId || '')} onChange={e => setF({ ...f, defaultSupplierId: e.target.value || null })}><option value="">Last supplier it was bought from</option>{supList.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>{fld('rackNo', 'Rack / shelf', { maxLength: 20 })}
             {fld('barcode', t('barcode'), { inputMode: 'numeric', maxLength: 40 })}
           </div></div>
         <div className="form-section"><h3>More</h3>
@@ -257,7 +261,7 @@ function ItemPicker({ meds, value, onPick, onCreate }: { meds: Medicine[]; value
 }
 
 export function Purchases() {
-  const { ctx, t, lang, user, toast } = useStore();
+  const { ctx, t, lang, user, toast, client, online } = useStore();
   const pos = useLive(() => ctx.db.purchases.filter(p => !p.deleted).toArray(), [], [] as Purchase[]);
   const sups = useLive(() => ctx.db.suppliers.filter(s => !s.deleted).toArray(), [], [] as Supplier[]);
   const meds = useLive(() => ctx.db.medicines.filter(m => !m.deleted).toArray(), [], [] as Medicine[]);
@@ -265,7 +269,11 @@ export function Purchases() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [newMed, setNewMed] = useState<{ name: string; line: number } | null>(null);
   const [newSup, setNewSup] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'ordered' | 'received'>('all');
+  const [filter, setFilter] = useState<'all' | 'ordered' | 'received' | 'approval'>('all');
+  const restock = async (p: Purchase) => {
+    try { await receivePurchase(ctx, p.id); toast('ok', t('stockAdded'), 'Now in Inventory and ready to sell in Point of Sale.'); }
+    catch (x) { if ((x as { code?: string }).code === 'BATCH_REQUIRED') { toast('warn', (x as Error).message); setOpenId(p.id); } else toast('bad', (x as Error).message); }
+  };
   const blank = (p: Partial<Line> = {}): Line => ({ medicineId: '', qty: '', free: '0', cost: '', sale: '', batchNo: '', expiryDate: addDays(isoDate(), 540), ...p });
   useEffect(() => {
     const i = takeIntent('purchases');
@@ -286,29 +294,30 @@ export function Purchases() {
       if (!m) throw new Error(`Line ${n + 1}: choose an item from Inventory`);
       const qty = Number(l.qty), free = 0;
       if (!Number.isInteger(qty) || qty <= 0) throw new Error(`${m.name}: quantity must be a whole number above 0`);
-      if (!l.batchNo.trim()) throw new Error(`${m.name}: batch number is required`);
-      if (!l.expiryDate || l.expiryDate <= today) throw new Error(`${m.name}: expiry date must be in the future`);
+      if (l.batchNo.trim() && (!l.expiryDate || l.expiryDate <= today)) throw new Error(`${m.name}: expiry date must be in the future`);
       if (!(Number(l.cost) >= 0)) throw new Error(`${m.name}: enter a valid cost price`);
       return { medicineId: m.id, qty, freeQty: free, costPrice: rs(l.cost), salePrice: l.sale ? rs(l.sale) : null, batchNo: l.batchNo.trim(), mfgDate: null, expiryDate: l.expiryDate };
     });
-    const p = await savePurchase(ctx, { ...(form!.id ? { id: form!.id } : {}), supplierId: form!.supplierId, date: today, status: 'ordered' }, items);
+    const prev = form!.id ? pos.find(x => x.id === form!.id) : undefined;
+    const p = await savePurchase(ctx, { ...(form!.id ? { id: form!.id } : {}), supplierId: form!.supplierId, date: prev?.date || today, status: prev ? prev.status : 'sent' }, items.map(i => ({ ...i, expiryDate: i.batchNo ? i.expiryDate : '' })));
     setForm(null); setOpenId(p.id);
     toast('ok', `${p.number} saved`, can(user, 'purchases.receive') ? 'Press "Receive" when the stock arrives — it then goes into Inventory and can be sold.' : undefined);
   });
   const open = pos.find(p => p.id === openId) || null;
-  const list = [...pos].filter(p => filter === 'all' || (filter === 'received' ? p.status === 'received' : p.status !== 'received')).sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
+  const list = [...pos].filter(p => filter === 'all' || (filter === 'received' ? p.status === 'received' : filter === 'approval' ? ['draft', 'pending_approval'].includes(p.status) : isOpen(p) && !['draft', 'pending_approval'].includes(p.status))).sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number));
   return (
     <>
       <div className="row"><h1>{t('purchases')}</h1><span className="spacer" />
-        <Tabs value={filter} onChange={v => setFilter(v as never)} tabs={[['all', 'All'], ['ordered', 'Waiting'], ['received', 'Received']]} />
+        <Tabs value={filter} onChange={v => setFilter(v as never)} tabs={[['all', 'All'], ['approval', `Drafts & approval (${pos.filter(p => ['draft', 'pending_approval'].includes(p.status)).length})`], ['ordered', 'Waiting for stock'], ['received', 'Restocked']]} />
+        {can(user, 'purchases.create') && <button type="button" className="btn" disabled={!online} title={online ? '' : 'Needs the server'} onClick={async () => { try { const r = await client.request<{ drafts: string[]; low: number }>('POST', '/api/automation/reorder-now', {}); toast('ok', r.drafts.length ? `${r.drafts.length} draft order(s) made` : r.low ? 'Low items are already on order or have no supplier' : 'No items are low', r.drafts.join(', ')); } catch (e) { toast('bad', (e as Error).message); } }}><Icon name="spark" size={16} /> Check stock now</button>}
         {can(user, 'purchases.create') && <button type="button" className="btn primary" onClick={() => setForm({ supplierId: '', lines: [blank()] })}><Icon name="plus" /> New purchase</button>}</div>
       <div className="table-wrap">{list.length === 0 ? <Empty icon="truck" text="No purchases yet" /> :
         <table className="t"><thead><tr><th>#</th><th>{t('suppliers')}</th><th>Date</th><th>{t('total')}</th><th>Status</th><th /></tr></thead><tbody>
           {list.map(p => { const s = sups.find(x => x.id === p.supplierId); return (
             <tr key={p.id} className="click" onClick={() => setOpenId(p.id)}><td className="num"><strong>{p.number}</strong></td>
               <td>{s ? <Link onClick={() => navigate('suppliers', { open: 'supplier', id: s.id })}>{s.name}</Link> : '—'}</td><td className="num">{p.date}</td><td className="num">{money(p.total, lang)}</td>
-              <td><span className={`badge ${p.status === 'received' ? 'ok' : 'warn'}`}>{p.status === 'received' ? 'in stock' : 'waiting'}</span></td>
-              <td>{p.status !== 'received' && can(user, 'purchases.receive') && <button type="button" className="btn sm primary" onClick={async e => { e.stopPropagation(); try { await receivePurchase(ctx, p.id); toast('ok', t('stockAdded'), 'Now in Inventory and ready to sell in Point of Sale.'); } catch (x) { toast('bad', (x as Error).message); } }}>{t('receive')}</button>}</td></tr>); })}
+              <td><StatusBadge p={p} /></td>
+              <td>{['sent', 'ordered', 'arrived'].includes(p.status) && can(user, 'purchases.receive') && <button type="button" className="btn sm primary" onClick={e => { e.stopPropagation(); void restock(p); }}>{t('receive')}</button>}</td></tr>); })}
         </tbody></table>}</div>
 
       {form && <Modal title={form.id ? 'Modify purchase' : 'New purchase'} onClose={() => setForm(null)} wide>
@@ -344,7 +353,7 @@ export function Purchases() {
         setNewMed(null); toast('ok', `${m.name} created in Inventory`);
       }} />}
       {newSup && <PartyForm kind="suppliers" initial={{ name: '' }} onClose={() => setNewSup(false)} onSaved={s => { setNewSup(false); if (form) setForm({ ...form, supplierId: s.id }); }} />}
-      {open && <PurchaseDetail p={open} sups={sups} meds={meds} onEdit={async () => {
+      {open && <PurchaseDetail p={open} sups={sups} meds={meds} onRestock={() => restock(open)} onEdit={async () => {
         const items = (await ctx.db.purchaseItems.where('purchaseId').equals(open.id).toArray()).filter(x => !x.deleted);
         setForm({ id: open.id, supplierId: open.supplierId, lines: [...items.map(x => blank({ medicineId: x.medicineId, qty: String(x.qty), free: String(x.freeQty || 0), cost: String(x.costPrice / 100), sale: x.salePrice ? String(x.salePrice / 100) : '', batchNo: x.batchNo, expiryDate: x.expiryDate })), blank()] });
         setOpenId(null);
@@ -353,24 +362,35 @@ export function Purchases() {
   );
 }
 
-function PurchaseDetail({ p, sups, meds, onEdit, onClose }: { p: Purchase; sups: Supplier[]; meds: Medicine[]; onEdit: () => void; onClose: () => void }) {
-  const { ctx, t, lang, user, toast } = useStore();
+function StatusBadge({ p }: { p: Purchase }) {
+  const cls = p.status === 'received' ? 'ok' : p.status === 'cancelled' ? 'bad' : ['draft', 'pending_approval'].includes(p.status) ? 'info' : 'warn';
+  return <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}><span className={`badge ${cls}`}>{statusLabel(p.status)}</span>{p.auto && <span className="badge acc" title="Made automatically because stock was low">Auto</span>}</span>;
+}
+
+function PurchaseDetail({ p, sups, meds, onEdit, onClose, onRestock }: { p: Purchase; sups: Supplier[]; meds: Medicine[]; onEdit: () => void; onClose: () => void; onRestock: () => void }) {
+  const { ctx, t, lang, user, toast, client, online } = useStore();
+  const move = async (to: Purchase['status']) => { try { await setPurchaseStatus(ctx, p.id, to); toast('ok', statusLabel(to)); } catch (e) { toast('bad', (e as Error).message); } };
+  const steps = (TRANSITIONS[normStatus(p.status)] || []).filter(x => can(user, x.perm));
   const items = useLive(() => ctx.db.purchaseItems.where('purchaseId').equals(p.id).toArray().then(x => x.filter(i => !i.deleted)), [p.id], [] as PurchaseItem[]);
   const s = sups.find(x => x.id === p.supplierId);
   const received = p.status === 'received';
   return (
     <Modal title={`Purchase ${p.number}`} onClose={onClose} wide>
       <div className="col">
-        <div className="row"><span className={`badge ${received ? 'ok' : 'warn'}`}>{received ? 'Received — in stock' : 'Waiting for stock'}</span>
+        <ol className="po-steps">{PO_STEPS.map((st, i) => <li key={st.key} className={i < stepIndex(p.status) ? 'done' : i === stepIndex(p.status) ? 'now' : ''}>{st.label}</li>)}</ol>
+        {p.notes && <span className="small muted">{p.notes}</span>}
+        <div className="row"><StatusBadge p={p} />
           <span className="muted">{p.date}</span>{s && <Link onClick={() => { onClose(); navigate('suppliers', { open: 'supplier', id: s.id }); }}><Icon name="factory" size={14} /> {s.name}</Link>}<span className="spacer" />
           {!received && can(user, 'purchases.edit') && <button type="button" className="btn sm" onClick={onEdit}>{t('edit')}</button>}
           {!received && can(user, 'purchases.delete') && <button type="button" className="btn sm danger" onClick={async () => { if (await confirmAsk({ message: `Cancel purchase ${p.number}?`, danger: true, confirmText: 'Cancel purchase' })) { try { await cancelPurchase(ctx, p.id); toast('ok', `${p.number} cancelled`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}>Cancel purchase</button>}
-          {!received && can(user, 'purchases.receive') && <button type="button" className="btn sm primary" onClick={async () => { try { await receivePurchase(ctx, p.id); toast('ok', t('stockAdded'), 'Now in Inventory and ready to sell in Point of Sale.'); } catch (e) { toast('bad', (e as Error).message); } }}>{t('receive')}</button>}
+          {steps.map(x => <button type="button" key={x.to} className={`btn sm ${x.to === 'sent' ? 'primary' : ''}`} onClick={() => move(x.to)}>{x.label}</button>)}
+          {['sent', 'ordered'].includes(p.status) && s && (s.email || s.phone) && can(user, 'purchases.approve') && <button type="button" className="btn sm" disabled={!online} onClick={async () => { try { const r = await client.request<{ queued: number }>('POST', `/api/notify/po/${p.id}`, {}); toast('ok', `Order sent to ${s.name}`, `${r.queued} message(s)`); } catch (e) { toast('bad', (e as Error).message); } }}><Icon name="send" size={16} /> Email / SMS to supplier</button>}
+          {['sent', 'ordered', 'arrived'].includes(p.status) && can(user, 'purchases.receive') && <button type="button" className="btn sm primary" onClick={onRestock}>{t('receive')}</button>}
         </div>
         <div className="table-wrap"><table className="t"><thead><tr><th>Item</th><th>{t('batch')}</th><th>{t('expiry')}</th><th>{t('qty')}</th><th>{t('costPrice')}</th><th>{t('amount')}</th></tr></thead><tbody>
           {items.map(i => { const m = meds.find(x => x.id === i.medicineId); return (
             <tr key={i.id}><td>{m ? <div className="row" style={{ flexWrap: 'nowrap', gap: 8 }}><MedThumb med={m} size={30} /><Link onClick={() => { onClose(); navigate('inventory', { open: 'medicine', id: m.id }); }}>{m.name} {m.strength}</Link></div> : 'Deleted item'}</td>
-              <td className="num">{i.batchNo}</td><td className="num">{i.expiryDate}</td><td className="num">{i.qty}</td><td className="num">{money(i.costPrice, lang)}</td><td className="num">{money(i.costPrice * i.qty, lang)}</td></tr>); })}
+              <td className="num">{i.batchNo || <span className="faint">—</span>}</td><td className="num">{i.expiryDate || <span className="faint">—</span>}</td><td className="num">{i.qty}</td><td className="num">{money(i.costPrice, lang)}</td><td className="num">{money(i.costPrice * i.qty, lang)}</td></tr>); })}
         </tbody></table></div>
         <div className="row"><span className="spacer" /><strong>{t('total')}: <span className="num">{money(p.total, lang)}</span></strong></div>
       </div>
@@ -379,7 +399,7 @@ function PurchaseDetail({ p, sups, meds, onEdit, onClose }: { p: Purchase; sups:
 }
 
 /* ======================= SUPPLIERS & CUSTOMERS ======================= */
-const FIELDS = { suppliers: ['name', 'phone', 'email', 'ntn', 'address'], patients: ['name', 'phone', 'cnic', 'age', 'doctorName', 'allergies', 'history'] };
+const FIELDS = { suppliers: ['name', 'phone', 'email', 'ntn', 'address'], patients: ['name', 'phone', 'email', 'cnic', 'age', 'doctorName', 'allergies', 'history'] };
 const LABEL: Record<string, string> = { doctorName: 'Doctor', cnic: 'CNIC', ntn: 'NTN', email: 'Email', address: 'Address', age: 'Age', allergies: 'Allergies', history: 'Medical history' };
 
 function PartyForm({ kind, initial, onClose, onSaved }: { kind: 'suppliers' | 'patients'; initial: Record<string, unknown>; onClose: () => void; onSaved: (r: Supplier | Patient) => void }) {
@@ -535,7 +555,7 @@ export function Invoices() {
           {inv.map(i => { const p = patients.find(x => x.id === i.patientId); return <tr key={i.id} className="click" onClick={() => setOpenId(i.id)}><td className="num"><strong>{i.number}</strong></td><td className="num">{new Date(i.createdAt).toLocaleTimeString(dateLocale())}</td>
             <td>{p ? <Link onClick={() => navigate('patients', { open: 'patient', id: p.id })}>{p.name}</Link> : <span className="faint small">Walk-in</span>}</td>
             <td>{users.find(u => u.id === i.cashierId)?.name}</td><td className="num">{money(i.total, lang)}</td>
-            <td><span className={`badge ${i.status === 'void' || i.rejected ? 'bad' : i.status === 'credit' ? 'warn' : 'ok'}`}>{i.rejected ? 'not saved' : i.status}</span>{i.conflict && <span className="badge warn" style={{ marginInlineStart: 6 }}>check stock</span>}</td></tr>; })}
+            <td><span className={`badge ${i.rejected ? 'bad' : (INV_STATUS[i.status] || ['', ''])[1]}`}>{i.rejected ? 'not saved' : (INV_STATUS[i.status] || [i.status])[0]}</span>{i.conflict && <span className="badge warn" style={{ marginInlineStart: 6 }}>check stock</span>}</td></tr>; })}
         </tbody></table>}</div>
       {openInv && (can(user, 'invoices.view_all') || openInv.cashierId === user?.id) && <InvoiceDetail inv={openInv} onClose={() => setOpenId(null)} />}
     </>
@@ -548,7 +568,10 @@ function InvoiceDetail({ inv, onClose }: { inv: Invoice & { rejected?: string };
   const meds = useLive(() => ctx.db.medicines.toArray(), [], [] as Medicine[]);
   const patient = useLive(() => inv.patientId ? ctx.db.patients.get(inv.patientId) : Promise.resolve(undefined), [], undefined as Patient | undefined);
   const cashier = useLive(() => ctx.db.users.get(inv.cashierId), [], undefined);
+  const { client, online } = useStore();
   const [voiding, setVoiding] = useState(false);
+  const [returning, setReturning] = useState(false);
+  const [sending, setSending] = useState(false);
   const [reason, setReason] = useState('');
   const [sup, setSup] = useState(false);
   const doVoid = async (supId?: string) => {
@@ -558,12 +581,14 @@ function InvoiceDetail({ inv, onClose }: { inv: Invoice & { rejected?: string };
   return (
     <Modal title={`Bill ${inv.number}`} onClose={onClose} wide>
       <div className="col">
-        <div className="row"><span className={`badge ${inv.status === 'void' ? 'bad' : inv.status === 'credit' ? 'warn' : 'ok'}`}>{inv.status}</span><span className="muted num">{new Date(inv.createdAt).toLocaleString(dateLocale())}</span>
+        <div className="row"><span className={`badge ${(INV_STATUS[inv.status] || ['', ''])[1]}`}>{(INV_STATUS[inv.status] || [inv.status])[0]}</span>{inv.fbrNumber && <span className="badge num">FBR {inv.fbrNumber}</span>}<span className="muted num">{new Date(inv.createdAt).toLocaleString(dateLocale())}</span>
           <span className="small muted">by {cashier?.name || '—'}</span>
           {patient && <Link onClick={() => { onClose(); navigate('patients', { open: 'patient', id: patient.id }); }}><Icon name="users" size={14} /> {patient.name}</Link>}<span className="spacer" />
           {can(user, 'invoices.reprint') && <><button type="button" className="btn sm" onClick={() => printer.enqueue(inv.id)}><Icon name="print" size={16} /> {t('reprint')}</button>
             <button type="button" className="btn sm" onClick={async () => { const d = await receiptData(ctx, inv.id, settings); if (d) downloadReceipt(d); }}><Icon name="download" size={16} /> PDF</button></>}
-          {inv.status !== 'void' && !inv.rejected && <button type="button" className="btn sm danger" onClick={() => setVoiding(true)}>{t('void')} / return</button>}
+          {can(user, 'messages.send') && !inv.rejected && <button type="button" className="btn sm" disabled={!online} title={online ? '' : 'Needs the server'} onClick={() => setSending(true)}><Icon name="send" size={16} /> Send bill</button>}
+          {!['void', 'refunded'].includes(inv.status) && !inv.rejected && <button type="button" className="btn sm" onClick={() => setReturning(true)}>Return items</button>}
+          {inv.status !== 'void' && inv.status !== 'refunded' && !inv.rejected && <button type="button" className="btn sm danger" onClick={() => setVoiding(true)}>{t('void')}</button>}
         </div>
         {inv.rejected && <span className="err">This bill was not accepted by the server: {inv.rejected}</span>}
         <div className="table-wrap"><table className="t"><thead><tr><th>Item</th><th>{t('batch')}</th><th>{t('qty')}</th><th>{t('price')}</th><th>{t('amount')}</th></tr></thead><tbody>
@@ -581,6 +606,61 @@ function InvoiceDetail({ inv, onClose }: { inv: Invoice & { rejected?: string };
           <div className="row"><button type="button" className="btn" onClick={() => setVoiding(false)}>{t('cancel')}</button><button type="button" className="btn danger" disabled={!reason.trim()} onClick={() => doVoid()}>{t('void')}</button></div></div>}
       </div>
       {sup && <SupervisorPrompt perm="invoices.void" onApproved={id => { setSup(false); void doVoid(id); }} onClose={() => setSup(false)} />}
+      {returning && <ReturnItems inv={inv} items={items} onClose={() => setReturning(false)} />}
+      {sending && <SendBill inv={inv} patient={patient} onClose={() => setSending(false)} send={async (to) => { const r = await client.request<{ queued: number }>('POST', `/api/notify/receipt/${inv.id}`, to); toast('ok', 'Bill is being sent', `${r.queued} message(s)`); setSending(false); }} />}
+    </Modal>
+  );
+}
+
+function ReturnItems({ inv, items, onClose }: { inv: Invoice; items: InvoiceItem[]; onClose: () => void }) {
+  const { ctx, t, lang, toast } = useStore();
+  const back = useLive(() => returnedQty(ctx, inv.id), [inv.id], new Map<string, number>());
+  const [qty, setQty] = useState<Record<string, string>>({});
+  const [reason, setReason] = useState('');
+  const [sup, setSup] = useState(false);
+  const lines = items.map(i => ({ it: i, left: i.qty - (back.get(i.id) || 0), n: Math.max(0, Math.floor(Number(qty[i.id]) || 0)) }));
+  const total = lines.reduce((s, l) => s + Math.round(l.it.total * Math.min(l.n, l.left) / l.it.qty), 0);
+  const go = async (supId?: string) => {
+    try {
+      const r = await refundItems(ctx, inv.id, lines.filter(l => l.n > 0).map(l => ({ itemId: l.it.id, qty: l.n })), reason, supId ? await ctx.db.users.get(supId) : undefined);
+      toast('ok', `${r.number} — ${money(r.total, lang)} returned`, 'Stock went back to Inventory.'); onClose();
+    } catch (e) { if ((e as { code?: string }).code === 'OVERRIDE_REQUIRED') setSup(true); else toast('bad', (e as Error).message); }
+  };
+  return (
+    <Modal title={`Return items — ${inv.number}`} onClose={onClose} wide>
+      <div className="col">
+        <span className="small muted">Type how many of each item the customer brings back. The money is given back (or taken off the udhaar balance) and the stock goes back to the same batch.</span>
+        <div className="table-wrap"><table className="t"><thead><tr><th>Item</th><th>Sold</th><th>Can return</th><th>{t('qty')}</th><th>{t('amount')}</th></tr></thead><tbody>
+          {lines.map(l => <tr key={l.it.id}><td>{l.it.name}<div className="small faint num">{l.it.batchNo}</div></td><td className="num">{l.it.qty}</td><td className="num">{l.left}</td>
+            <td><input className="input num" style={{ width: 80, minHeight: 36 }} inputMode="numeric" disabled={l.left <= 0} value={qty[l.it.id] || ''} placeholder="0" onChange={e => setQty({ ...qty, [l.it.id]: String(Math.min(l.left, Number(e.target.value.replace(/\D/g, '')) || 0) || '') })} /></td>
+            <td className="num">{money(Math.round(l.it.total * Math.min(l.n, l.left) / l.it.qty), lang)}</td></tr>)}
+        </tbody></table></div>
+        <input className="input" maxLength={120} placeholder="Reason (e.g. wrong medicine, not needed)" value={reason} onChange={e => setReason(e.target.value)} />
+        <div className="form-actions"><strong className="big">Money back: <span className="num">{money(total, lang)}</span></strong><span className="spacer" />
+          <button type="button" className="btn" onClick={onClose}>{t('cancel')}</button>
+          <button type="button" className="btn primary" disabled={!total || !reason.trim()} onClick={() => go()}>Return items</button></div>
+      </div>
+      {sup && <SupervisorPrompt perm="invoices.refund" onApproved={id => { setSup(false); void go(id); }} onClose={() => setSup(false)} />}
+    </Modal>
+  );
+}
+
+function SendBill({ inv, patient, onClose, send }: { inv: Invoice; patient?: Patient; onClose: () => void; send: (to: { email?: string; phone?: string }) => Promise<void> }) {
+  const { t } = useStore();
+  const [email, setEmail] = useState(patient?.email || ''), [phone, setPhone] = useState(patient?.phone || '');
+  const a = useAsync(async () => {
+    if (!email.trim() && !phone.trim()) throw new Error('Enter an email or a mobile number');
+    await send({ ...(email.trim() ? { email: email.trim() } : {}), ...(phone.trim() ? { phone: phone.trim() } : {}) });
+  });
+  return (
+    <Modal title={`Send bill ${inv.number}`} onClose={onClose}>
+      <form className="col" onSubmit={e => { e.preventDefault(); void a.run(); }}>
+        <label className="field">Email<input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@example.com" /></label>
+        <label className="field">Mobile (SMS)<input className="input num" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="03xx xxxxxxx" /></label>
+        <span className="small muted">Uses the email and SMS service set in Settings → Email & SMS.</span>
+        {a.err && <span className="err" role="alert">{a.err}</span>}
+        <div className="form-actions"><span className="spacer" /><button type="button" className="btn" onClick={onClose}>{t('cancel')}</button><button className="btn primary" disabled={a.busy}><Icon name="send" size={16} /> Send</button></div>
+      </form>
     </Modal>
   );
 }

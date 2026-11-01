@@ -3,14 +3,14 @@
 // strict when the server is reachable and still works when it is not.
 // © Awais Amin
 import type { Ctx } from './db.ts';
-import { stamp, enqueue, nextNumber, emit } from './db.ts';
+import { stamp, enqueue, nextNumber, nextBillNumber, emit } from './db.ts';
 import type { ServerClient } from './sync.ts';
 import { flushOutbox } from './sync.ts';
 import { allocateFEFO, pendingBatchId, isSellable, fefoSort } from '../../shared/fefo.ts';
 import { invoiceTotals } from '../../shared/money.ts';
 import { can } from '../../shared/permissions.ts';
 import { uuid, isoDate, daysBetween, OutOfStockError, OverrideRequiredError, PermissionError, NetworkError, AppError } from '../../shared/util.ts';
-import type { Batch, Medicine, Invoice, InvoiceItem, Delta, OpResult, User } from '../../shared/types.ts';
+import type { Batch, Medicine, Invoice, InvoiceItem, Delta, OpResult, User, Refund } from '../../shared/types.ts';
 
 export interface CartLine {
   key: string;
@@ -163,7 +163,7 @@ export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: Serve
   const invoiceId = uuid();
   const now = new Date().toISOString();
   const invoice: Invoice = {
-    id: invoiceId, number: await nextNumber(ctx, 'INV'), patientId: cart.patientId, cashierId: ctx.user.id, createdAt: now,
+    id: invoiceId, number: await nextBillNumber(ctx), patientId: cart.patientId, cashierId: ctx.user.id, createdAt: now,
     status: pay.method === 'credit' ? 'credit' : 'paid', gross: t.gross, discount: t.discount, tax: t.tax, total: t.total,
     paid: pay.method === 'credit' ? 0 : pay.paid, change: pay.method === 'credit' ? 0 : pay.paid - t.total, payMethod: pay.method,
     deviceId: ctx.deviceId, hlc: stamp(ctx),
@@ -257,4 +257,62 @@ export async function voidInvoice(ctx: Ctx, invoiceId: string, reason: string, s
   });
   emit(ctx, 'stock-changed');
   return updated;
+}
+
+/** Units of each bill line already returned earlier. */
+export async function returnedQty(ctx: Ctx, invoiceId: string): Promise<Map<string, number>> {
+  const m = new Map<string, number>();
+  for (const r of await ctx.db.refunds.where('invoiceId').equals(invoiceId).toArray()) {
+    if (r.deleted) continue;
+    for (const i of r.items) m.set(i.itemId, (m.get(i.itemId) || 0) + i.qty);
+  }
+  return m;
+}
+
+/**
+ * Return some items from a bill. Stock goes back to the same batches, the money given back is
+ * recorded (for udhaar bills it is taken off the customer's balance), and the bill shows
+ * "Partially refunded" (or "Refunded" when everything came back). Needs invoices.refund.
+ */
+export async function refundItems(ctx: Ctx, invoiceId: string, lines: { itemId: string; qty: number }[], reason: string, supervisor?: User) {
+  const approver = can(ctx.user, 'invoices.refund') ? ctx.user! : supervisor;
+  if (!approver || !can(approver, 'invoices.refund')) throw new OverrideRequiredError('invoices.refund', 'Returning items needs a supervisor PIN');
+  if (!reason.trim()) throw new AppError('REASON_REQUIRED', 'Please give a reason');
+  const db = ctx.db;
+  const inv = await db.invoices.get(invoiceId);
+  if (!inv) throw new AppError('NOT_FOUND', 'Invoice not found');
+  if (inv.status === 'void' || inv.status === 'refunded') throw new AppError('LOCKED', 'Nothing left to return on this bill');
+  const items = await db.invoiceItems.where('invoiceId').equals(invoiceId).toArray();
+  const before = await returnedQty(ctx, invoiceId);
+  const out: Refund['items'] = [];
+  for (const l of lines) {
+    if (!l.qty) continue;
+    const it = items.find(x => x.id === l.itemId);
+    if (!it) throw new AppError('NOT_FOUND', 'Bill line not found');
+    const left = it.qty - (before.get(it.id) || 0);
+    if (!Number.isInteger(l.qty) || l.qty < 0 || l.qty > left) throw new AppError('INVALID_QTY', `${it.name || 'Item'}: you can return at most ${left}`);
+    const share = (v: number) => Math.round((v * l.qty) / it.qty);
+    out.push({ itemId: it.id, medicineId: it.medicineId, batchId: it.batchId, qty: l.qty, amount: share(it.total), tax: share(it.tax), cost: it.costPrice || 0, name: it.name });
+  }
+  if (!out.length) throw new AppError('EMPTY', 'Choose how many of each item come back');
+  const total = out.reduce((s, i) => s + i.amount, 0), tax = out.reduce((s, i) => s + i.tax, 0);
+  const now = new Date().toISOString();
+  const credit = (inv.baseStatus || inv.status) === 'credit';
+  const refund: Refund = {
+    id: uuid(), invoiceId, number: await nextNumber(ctx, 'RET'), date: isoDate(), createdAt: now, userId: ctx.user!.id, approvedBy: approver.id,
+    reason: reason.trim(), method: credit ? 'credit' : inv.payMethod === 'card' ? 'card' : 'cash', items: out, total, tax, hlc: stamp(ctx),
+  };
+  const allBack = items.every(it => (before.get(it.id) || 0) + (out.find(o => o.itemId === it.id)?.qty || 0) >= it.qty);
+  const updated: Invoice = { ...inv, baseStatus: inv.baseStatus || (inv.status === 'credit' ? 'credit' : 'paid'), status: allBack ? 'refunded' : 'partial_refund', refunded: (inv.refunded || 0) + total, hlc: stamp(ctx) };
+  const deltas: Delta[] = out.map(i => ({ batchId: i.batchId, medicineId: i.medicineId, delta: i.qty }));
+  const audit = { id: uuid(), at: now, userId: ctx.user!.id, userName: ctx.user!.name, deviceId: ctx.deviceId, action: 'invoice.refund', entity: 'invoices', entityId: invoiceId, details: { number: inv.number, refund: refund.number, total, reason: refund.reason, approvedBy: approver.name }, hlc: stamp(ctx) };
+  const rows: { tbl: string; row: unknown }[] = [{ tbl: 'refunds', row: refund }, { tbl: 'invoices', row: updated }, { tbl: 'audit', row: audit }];
+  if (credit && inv.patientId) rows.push({ tbl: 'ledger', row: { id: uuid(), partyType: 'patient', partyId: inv.patientId, date: isoDate(), debit: 0, credit: total, ref: refund.number, note: `Items returned (${inv.number})`, hlc: stamp(ctx) } });
+  await db.transaction('rw', [db.refunds, db.invoices, db.batches, db.ledger, db.outbox, db.audit], async () => {
+    for (const r of rows) await db.table(r.tbl).put(r.row);
+    for (const d of deltas) { const b = await db.batches.get(d.batchId); if (b) await db.batches.update(d.batchId, { qty: b.qty + d.delta }); }
+    await enqueue(ctx, { kind: 'refund', strict: false, rows: rows as never, deltas, userId: approver.id } as never);
+  });
+  emit(ctx, 'stock-changed');
+  return refund;
 }
