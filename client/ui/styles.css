@@ -295,3 +295,12 @@ td.num, th.num, .num { white-space: nowrap; }
 :focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .btn, .card, .t tbody tr { transition: none; } }
 @media print { .tip-slide, .jump-back, .update-bar { display: none !important; } }
+
+/* ---------- polish ---------- */
+h1 { letter-spacing: -.02em; }
+.t thead th { font-size: 12px; letter-spacing: .01em; color: var(--muted); }
+.t td, .t th { padding-block: 11px; }
+.card { border-radius: 18px; }
+.input { transition: border-color .15s ease, box-shadow .15s ease; }
+.input:focus { box-shadow: 0 0 0 3px var(--accentSoft); }
+.badge { font-weight: 700; }

@@ -77,10 +77,14 @@ export interface Refund extends Synced {
   items: { itemId: string; medicineId: string; batchId: string; qty: number; amount: number; tax: number; cost: number; name?: string }[];
   total: number; tax: number;
 }
+/** End of day: cash counted in the drawer against what the cash book says. */
+export interface CashClosing extends Synced { date: string; expected: number; counted: number; difference: number; note?: string; userId?: string | null; userName?: string | null; at: string }
 export interface LedgerEntry extends Synced {
   partyType: 'supplier' | 'patient'; partyId: string; date: string; debit: number; credit: number; ref: string; note?: string;
   /** Made at another branch (customers shared): counts in the balance, not in this branch's cash. */
   foreign?: boolean; originBranch?: string;
+  /** How a payment moved. Older entries have none and count as cash. */
+  method?: 'cash' | 'bank';
 }
 export interface User extends Synced {
   username: string; name: string; email?: string; role: string; perms: string[]; active: boolean;
@@ -107,6 +111,10 @@ export interface Shop extends Synced {
   branchName?: string; branchCode?: string;
   /** The owner's choice: this pharmacy has several branches. Off = the Branches screen does not appear. */
   branchesOn?: boolean;
+  /** Optional: money the business had before it started using PharmaDesk (paisa). */
+  openingCash?: number; openingBank?: number;
+  /** Set by the server when the licence ends within 7 days. */
+  planWarn?: { daysLeft: number; vendor: string } | null;
   /** FBR reporting is on (Pakistan only) — devices wait briefly for the FBR number before printing. */
   fbrOn?: boolean;
 }
@@ -118,7 +126,7 @@ export interface AuditEntry extends Synced {
 /** All tables that sync between the server and devices. */
 export const SYNC_TABLES = [
   'medicines', 'batches', 'suppliers', 'patients', 'prescriptions', 'invoices', 'invoiceItems',
-  'purchases', 'purchaseItems', 'ledger', 'users', 'audit', 'shop', 'expenses', 'refunds',
+  'purchases', 'purchaseItems', 'ledger', 'users', 'audit', 'shop', 'expenses', 'refunds', 'closings',
 ] as const;
 export type SyncTable = typeof SYNC_TABLES[number];
 

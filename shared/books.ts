@@ -11,7 +11,7 @@ export interface BooksData {
   batches?: Batch[]; patients?: Patient[]; suppliers?: Supplier[];
 }
 
-export type EntryKind = 'sale' | 'sale_return' | 'purchase' | 'receipt' | 'payment' | 'expense';
+export type EntryKind = 'sale' | 'sale_return' | 'purchase' | 'purchase_return' | 'receipt' | 'payment' | 'expense';
 export type Method = 'cash' | 'bank' | 'credit';
 
 /** One line in a statement. Amount is the document's value; moneyIn and moneyOut are what actually moved. */
@@ -31,7 +31,7 @@ export interface StatementFilter {
 
 const methodOf = (m: string | undefined): Method => m === 'credit' ? 'credit' : m === 'cash' ? 'cash' : 'bank';
 const isSalesSide = (k: EntryKind, partyType: Entry['partyType']) => k === 'sale' || k === 'sale_return' || (k === 'receipt' && partyType === 'patient');
-const isPurchaseSide = (k: EntryKind) => k === 'purchase' || k === 'payment';
+const isPurchaseSide = (k: EntryKind) => k === 'purchase' || k === 'purchase_return' || k === 'payment';
 
 /** Every money document of the shop, oldest first. */
 export function allEntries(data: BooksData): Entry[] {
@@ -65,11 +65,15 @@ export function allEntries(data: BooksData): Entry[] {
     });
   }
   for (const l of data.ledger) {
+    if (!l.deleted && l.partyType === 'supplier' && l.ref.startsWith('PRET-')) {
+      out.push({ id: l.id, date: l.date, kind: 'purchase_return', doc: l.ref, method: 'credit', partyType: 'supplier', partyId: l.partyId, partyName: sName.get(l.partyId) || '', note: l.note || '', amount: l.debit, moneyIn: 0, moneyOut: 0 });
+      continue;
+    }
     if (l.deleted || l.ref !== 'PAYMENT' || (l as { foreign?: boolean }).foreign) continue; // money taken at another branch is that branch's cash
     const sup = l.partyType === 'supplier';
     const amount = sup ? l.debit : l.credit;
     out.push({
-      id: l.id, date: l.date, kind: sup ? 'payment' : 'receipt', doc: 'PAYMENT', method: 'cash', partyType: l.partyType, partyId: l.partyId,
+      id: l.id, date: l.date, kind: sup ? 'payment' : 'receipt', doc: 'PAYMENT', method: l.method === 'bank' ? 'bank' : 'cash', partyType: l.partyType, partyId: l.partyId,
       partyName: (sup ? sName : pName).get(l.partyId) || '', note: l.note || '', amount, moneyIn: sup ? 0 : amount, moneyOut: sup ? amount : 0,
     });
   }
@@ -83,7 +87,7 @@ export function allEntries(data: BooksData): Entry[] {
   return out.sort((a, b) => a.date.localeCompare(b.date) || a.doc.localeCompare(b.doc));
 }
 
-export interface StatementTotals { sales: number; returns: number; purchases: number; received: number; paid: number; moneyIn: number; moneyOut: number; count: number }
+export interface StatementTotals { sales: number; returns: number; purchases: number; purchaseReturns: number; received: number; paid: number; moneyIn: number; moneyOut: number; count: number }
 
 /** A statement: filter by dates, customer or supplier, cash or credit, sales or purchases or both. */
 export function statement(data: BooksData, f: StatementFilter): { rows: Entry[]; totals: StatementTotals } {
@@ -97,11 +101,12 @@ export function statement(data: BooksData, f: StatementFilter): { rows: Entry[];
     if (f.partyId && (e.partyId !== f.partyId || (f.partyType && e.partyType !== f.partyType))) return false;
     return true;
   });
-  const totals: StatementTotals = { sales: 0, returns: 0, purchases: 0, received: 0, paid: 0, moneyIn: 0, moneyOut: 0, count: rows.length };
+  const totals: StatementTotals = { sales: 0, returns: 0, purchases: 0, purchaseReturns: 0, received: 0, paid: 0, moneyIn: 0, moneyOut: 0, count: rows.length };
   for (const e of rows) {
     if (e.kind === 'sale') totals.sales += e.amount;
     if (e.kind === 'sale_return') totals.returns += e.amount;
     if (e.kind === 'purchase') totals.purchases += e.amount;
+    if (e.kind === 'purchase_return') totals.purchaseReturns += e.amount;
     if (e.kind === 'receipt') totals.received += e.amount;
     if (e.kind === 'payment') totals.paid += e.amount;
     totals.moneyIn += e.moneyIn; totals.moneyOut += e.moneyOut;

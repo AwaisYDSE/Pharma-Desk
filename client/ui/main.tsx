@@ -7,6 +7,7 @@ import { Toasts , ConfirmHost} from './components.tsx';
 import { Accounts } from './screens/Accounts.tsx';
 import { LockScreen } from './screens/Lock.tsx';
 import { Branches } from './screens/Branches.tsx';
+import { StockTools } from './screens/StockTools.tsx';
 import { KeyboardAssist, TipSlider, UpdateBlock, UpdateNotice, useUpdate } from './Assist.tsx';
 import { OwnerSetup, PairScreen, LoginScreen, LicenseGate, supportLogin, type LicenseInfo } from './screens/Auth.tsx';
 supportLogin.capture();
@@ -75,7 +76,7 @@ function App() {
   const r = route === 'more' || route === 'about' || (MODULES.some(m => m.key === route) && can(user, route) && moduleOn(route, shop)) ? route : first;
   const screens: Record<string, React.ReactNode> = {
     dashboard: <Dashboard />, pos: <Pos />, invoices: <Invoices />, inventory: <Inventory />, purchases: <Purchases />,
-    suppliers: <Parties kind="suppliers" />, patients: <Parties kind="patients" />, alerts: <Alerts />, reports: <Reports />, accounts: <Accounts />, branches: <Branches />,
+    suppliers: <Parties kind="suppliers" />, patients: <Parties kind="patients" />, alerts: <Alerts />, reports: <Reports />, accounts: <Accounts />, branches: <Branches />, stocktools: <StockTools />,
     users: <Users />, settings: <Settings />, more: <MoreMenu go={go} />, about: <About />,
   };
   return <><Shell route={r} go={go}><ErrorBoundary key={r + navKey}>{screens[r]}</ErrorBoundary></Shell><KeyboardAssist go={go} /><TipSlider /><UpdateNotice u={update} /></>;

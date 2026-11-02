@@ -22,7 +22,7 @@ import { pcCode, resetOwnerPin } from './owner-reset.ts';
 import { setSupportAccess, supportOn, checkIn } from './vendor-link.ts';
 import * as notify from './notify.ts';
 import * as branches from './branches.ts';
-import { makeBackup, restoreBackup } from './backup.ts';
+import { makeBackup, restoreBackup, setBackupFolder, backupFolderStatus } from './backup.ts';
 import { installUpdate } from './updater.ts';
 import { APP_VERSION } from '../shared/version.ts';
 import { runReorder, queuePurchaseOrder, queueReceipt, afterOps, autoPoOn } from './automation.ts';
@@ -81,7 +81,8 @@ export function createApp(db: DB, opts: AppOptions = {}) {
       const shop = getRow<Shop>(db, 'shop', 'shop');
       if (shop) {
         const want = s.locked && !s.needsKey ? { status: s.status, message: getSetting(db, 'vendor_message'), vendor: VENDOR.name } : null;
-        if (JSON.stringify(shop.planLock || null) !== JSON.stringify(want)) putRow(db, 'shop', { ...shop, planLock: want } as Shop, serverClock.tick());
+        const warn = !s.locked && s.daysLeft != null && s.daysLeft <= 7 ? { daysLeft: s.daysLeft, vendor: VENDOR.name } : null;
+        if (JSON.stringify(shop.planLock || null) !== JSON.stringify(want) || JSON.stringify(shop.planWarn || null) !== JSON.stringify(warn)) putRow(db, 'shop', { ...shop, planLock: want, planWarn: warn } as Shop, serverClock.tick());
       }
     } catch { /* keep last */ }
   };
@@ -167,6 +168,12 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     const r = restoreBackup(db, String(req.body?.file || ''), String(req.body?.pin || ''));
     sup.logEvent(db, 'data.restored', { rows: r.rows });
     return r;
+  }));
+  app.get('/local/backup-folder', localOnly, wrap(() => backupFolderStatus(db)));
+  app.post('/local/backup-folder', localOnly, wrap(req => {
+    setBackupFolder(db, String(req.body?.folder || ''), String(req.body?.pin || ''));
+    sup.logEvent(db, 'data.backup_folder', { on: !!req.body?.folder });
+    return backupFolderStatus(db);
   }));
   app.post('/local/update', localOnly, wrap(async () => {
     const r = await installUpdate({ fetch: opts.updateFetch, open: opts.updateOpen });

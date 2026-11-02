@@ -1,0 +1,39 @@
+# The button for publishing an update, no coding needed. On GitHub: Actions → Publish an update → Run workflow.
+name: Publish an update
+on:
+  workflow_dispatch:
+    inputs:
+      kind:
+        description: Must everyone update, or is it their choice?
+        type: choice
+        options: [optional, must]
+        default: optional
+      notes:
+        description: What is new (shown to users)
+        type: string
+        required: false
+permissions: { contents: write, actions: write }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Set the new version
+        env:
+          KIND: ${{ inputs.kind }}
+          NOTES: ${{ inputs.notes }}
+        run: node installer/bump-version.mjs
+      - name: Save it
+        run: |
+          git config user.name "Awais Amin"
+          git config user.email "Awaisamindpw@gmail.com"
+          git add package.json package-lock.json release.json shared/version.ts
+          git commit -m "Publish version $(node -p "require('./package.json').version")"
+          git push origin main
+      - name: Build, test and go live
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main

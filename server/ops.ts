@@ -36,7 +36,8 @@ function checkShape(op: Op) {
   }
   if (op.kind === 'void' && !allowed(['invoices', 'ledger', 'audit'])) refuse('A void can only change the bill');
   if (op.kind === 'refund' && !allowed(['refunds', 'invoices', 'ledger', 'audit'])) refuse('A return can only change the bill');
-  if (op.kind === 'stock' && !allowed(tables.includes('purchases') ? ['purchases', 'purchaseItems', 'medicines', 'batches', 'ledger', 'audit'] : ['audit'])) refuse('A stock change cannot carry other data');
+  const supplierReturn = op.kind === 'stock' && !tables.includes('purchases') && op.rows.some(r => r.tbl === 'ledger' && (r.row as { ref?: string; partyType?: string }).partyType === 'supplier' && String((r.row as { ref?: string }).ref).startsWith('PRET-'));
+  if (op.kind === 'stock' && !allowed(tables.includes('purchases') ? ['purchases', 'purchaseItems', 'medicines', 'batches', 'ledger', 'audit'] : supplierReturn ? ['ledger', 'audit'] : ['audit'])) refuse('A stock change cannot carry other data');
 }
 
 /** A sale may never replace an existing bill or ledger line (retries are answered from the ops table first). */
@@ -136,6 +137,7 @@ export function neededPerms(db: DB, op: Op): string[] {
   if (op.kind === 'refund') need.add('invoices.refund');
   if (op.kind === 'stock') {
     if (op.rows.some(r => r.tbl === 'purchases')) need.add('purchases.receive');
+    else if (op.rows.some(r => r.tbl === 'ledger')) need.add('purchases.return');
     else if (op.deltas.some(d => d.create)) need.add('inventory.add_stock');
     else need.add('inventory.adjust');
   }

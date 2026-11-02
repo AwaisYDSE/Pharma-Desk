@@ -10,6 +10,32 @@ import { can } from '../../../shared/permissions.ts';
 import type { Settings as S } from '../../core/settings.ts';
 import { BillsCard, AutomationCard, MessagesCard, FbrCard } from './SettingsMore.tsx';
 
+/** Copies a backup to a USB drive or another folder after every automatic backup. */
+function BackupFolder() {
+  const { toast } = useStore();
+  const [st, setSt] = useState<{ folder: string | null; lastOk: string | null; error: string | null } | null>(null), [folder, setFolder] = useState(''), [pin, setPin] = useState('');
+  useEffect(() => { fetch('/local/backup-folder').then(r => r.json()).then(d => { setSt(d); setFolder(d.folder || ''); }).catch(() => {}); }, []);
+  const save = useAsync(async () => {
+    const r = await fetch('/local/backup-folder', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ folder, pin }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.message || 'Could not save the backup');
+    setSt(d); setPin(''); toast(d.error ? 'warn' : 'ok', d.error || 'Saved');
+  });
+  return (
+    <section className="card col" style={{ marginTop: 4 }}><h2><Icon name="download" /> Backup to USB or another folder</h2>
+      <span className="small muted">A locked copy is saved here every 6 hours. It opens only with the owner PIN set today.</span>
+      <div className="row" style={{ gap: 10 }}>
+        <label className="field" style={{ flex: 1, minWidth: 220 }}>Folder path<input className="input" dir="ltr" value={folder} onChange={e => setFolder(e.target.value)} placeholder="E:\\PharmaDesk" /></label>
+        <label className="field" style={{ width: 150 }}>Owner PIN<input className="input" type="password" dir="ltr" autoComplete="off" value={pin} onChange={e => setPin(e.target.value)} /></label>
+        <button type="button" className="btn primary" style={{ alignSelf: 'flex-end' }} disabled={save.busy || (!!folder && !pin)} onClick={() => void save.run()}>Save</button>
+      </div>
+      {st?.lastOk && <span className="small muted" dir="ltr">{new Date(st.lastOk).toLocaleString()}</span>}
+      {st?.error && <span className="err">{st.error}</span>}
+      {save.err && <span className="err">{save.err}</span>}
+    </section>
+  );
+}
+
 export function Settings() {
   const { t, settings, setSettings, lang, setLang, user, isServerPc, client, online, ctx, toast, shop } = useStore();
   const [f, setF] = useState<S>(settings);
@@ -67,6 +93,7 @@ export function Settings() {
       {user?.owner && <section className="card col" style={{ marginTop: 4 }}>
         <label className="row"><Toggle on={!!shop?.branchesOn} label="This shop has more than one branch" onChange={v => void saveRecord(ctx, 'shop', { ...(shop || {}), id: 'shop', branchesOn: v } as never).catch(e => toast('bad', (e as Error).message))} /> <strong>This shop has more than one branch</strong> <span className="small muted">Off for a single shop. Switch on to connect several branches.</span></label>
       </section>}
+      {user?.owner && isServerPc && <BackupFolder />}
       {user?.owner && <section className="card col" style={{ marginTop: 4 }}>
         <label className="row"><Toggle on={critical} onChange={setCritical} label="Critical settings" /> <strong>Critical settings</strong> <span className="small muted">— AI, email & SMS, automatic orders, FBR and developer support. Owner only.</span></label>
       </section>}

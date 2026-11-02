@@ -61,3 +61,22 @@ describe('Books', () => {
     expect(p.worth).toBe(-400 + 300 + 1500 + 500 - 3500);
   });
 });
+
+describe('Payment method, returns and reports', () => {
+  it('a bank payment goes to the bank book, not the cash book', () => {
+    const d: BooksData = { ...data, invoices: [], refunds: [], expenses: [], purchases: [], ledger: [{ ...led('B', 'patient', 'c1', '2026-01-05', 0, 900, 'PAYMENT'), method: 'bank' }, led('C', 'patient', 'c1', '2026-01-05', 0, 100, 'PAYMENT')] };
+    expect(moneyBook(d, 'bank', all.from, all.to).closing).toBe(900);
+    expect(moneyBook(d, 'cash', all.from, all.to).closing).toBe(100);
+  });
+  it('a supplier return lowers what we owe and shows in the statement, moving no money', () => {
+    const d: BooksData = { ...data, ledger: [led('P', 'supplier', 's1', '2026-01-02', 0, 5000, 'P1'), led('R', 'supplier', 's1', '2026-01-03', 800, 0, 'PRET-1')] };
+    const st = statement(d, { ...all, partyType: 'supplier', partyId: 's1' });
+    expect(st.totals.purchaseReturns).toBe(800);
+    expect(st.rows.find(r => r.kind === 'purchase_return')).toMatchObject({ moneyIn: 0, moneyOut: 0 });
+    expect(agedBalances(d, 'supplier', '2026-01-10').total).toBe(4200);
+  });
+  it('opening cash carries through the book and position', () => {
+    expect(moneyBook(data, 'cash', all.from, all.to, 1000).opening).toBe(1000);
+    expect(businessPosition(data, '2026-01-31', 1000, 0).cash).toBe(600);
+  });
+});

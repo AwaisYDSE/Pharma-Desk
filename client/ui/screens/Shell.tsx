@@ -12,7 +12,7 @@ import { LANGS } from '../i18n.ts';
 
 const ICONS: Record<string, string> = {
   dashboard: 'grid', pos: 'cart', invoices: 'receipt', inventory: 'box', purchases: 'truck', suppliers: 'factory',
-  patients: 'users', alerts: 'bell', reports: 'chart', accounts: 'wallet', branches: 'server', ai: 'spark', users: 'shield', settings: 'gear',
+  patients: 'users', alerts: 'bell', reports: 'chart', accounts: 'wallet', branches: 'server', stocktools: 'box', ai: 'spark', users: 'shield', settings: 'gear',
 };
 
 export function Shell({ route, go, children }: { route: string; go: (r: string) => void; children: React.ReactNode }) {
@@ -80,6 +80,7 @@ export function Shell({ route, go, children }: { route: string; go: (r: string) 
         {shop?.supportAccess && <div className="support-banner" role="status"><Icon name="shield" size={16} /> <span>Support access is ON — the developer can connect to help this shop. The owner can turn it off in Settings.</span></div>}
         <AnimatePresence mode="wait">
           <motion.main key={route} className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .18 }}>
+            {shop?.planWarn && <div className="plan-banner" role="status"><Icon name="warn" size={18} /><span><strong>Your plan ends soon.</strong> {t('Days left')}: <strong>{shop.planWarn.daysLeft}</strong></span></div>}
             {children}
           </motion.main>
         </AnimatePresence>

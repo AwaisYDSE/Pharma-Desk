@@ -193,11 +193,11 @@ export async function addOpeningStock(ctx: Ctx, medicineId: string, b: { batchNo
   return batch;
 }
 
-export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient', partyId: string, amount: number, note = '') {
+export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient', partyId: string, amount: number, note = '', method: 'cash' | 'bank' = 'cash') {
   if (!can(ctx.user, partyType === 'supplier' ? 'suppliers.payment' : 'patients.payment')) throw new PermissionError();
   const db = ctx.db;
   const entry: LedgerEntry = {
-    id: uuid(), partyType, partyId, date: isoDate(), ref: 'PAYMENT', note, hlc: stamp(ctx),
+    id: uuid(), partyType, partyId, date: isoDate(), ref: 'PAYMENT', note, method, hlc: stamp(ctx),
     debit: partyType === 'supplier' ? amount : 0, credit: partyType === 'patient' ? amount : 0,
   };
   await db.transaction('rw', db.ledger, db.outbox, db.audit, async () => {
@@ -205,6 +205,42 @@ export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient',
     const a = await logAuditRow(ctx, 'ledger.payment', { entity: partyType, entityId: partyId, details: { amount } });
     await enqueue(ctx, makeOp(ctx, 'upsert', [{ tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }]));
   });
+  return entry;
+}
+
+/** Optional: what a customer owed or a supplier was owed before PharmaDesk. Shows on their account. */
+export async function setOpeningBalance(ctx: Ctx, partyType: 'supplier' | 'patient', partyId: string, amount: number, date: string) {
+  if (!can(ctx.user, partyType === 'supplier' ? 'suppliers.payment' : 'patients.payment')) throw new PermissionError();
+  if (!Number.isInteger(amount) || amount <= 0) throw new AppError('INVALID', 'Enter an amount above 0');
+  const db = ctx.db;
+  const entry: LedgerEntry = { id: uuid(), partyType, partyId, date, ref: 'OPENING', note: 'Opening balance', hlc: stamp(ctx), debit: partyType === 'patient' ? amount : 0, credit: partyType === 'supplier' ? amount : 0 };
+  await db.transaction('rw', db.ledger, db.outbox, db.audit, async () => {
+    await db.ledger.put(entry);
+    const a = await logAuditRow(ctx, 'ledger.opening', { entity: partyType, entityId: partyId, details: { amount } });
+    await enqueue(ctx, makeOp(ctx, 'upsert', [{ tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }]));
+  });
+  return entry;
+}
+
+/** Send stock back to its supplier: it leaves the batch and comes off what we owe them. */
+export async function returnToSupplier(ctx: Ctx, supplierId: string, batchId: string, qty: number, reason: string) {
+  if (!can(ctx.user, 'purchases.return')) throw new PermissionError();
+  if (!reason?.trim()) throw new AppError('REASON_REQUIRED', 'Please give a reason');
+  if (!Number.isInteger(qty) || qty <= 0) throw new AppError('INVALID', 'Quantity must be a whole number above zero');
+  const db = ctx.db;
+  const number = await nextNumber(ctx, 'PRET');
+  let entry!: LedgerEntry;
+  await db.transaction('rw', db.batches, db.ledger, db.outbox, db.audit, async () => {
+    const b = await db.batches.get(batchId);
+    if (!b || b.deleted || b.pending) throw new AppError('NOT_FOUND', 'Batch not found');
+    if (b.qty < qty) throw new AppError('NEGATIVE', `Only ${b.qty} in this batch`);
+    await db.batches.update(batchId, { qty: b.qty - qty, hlc: stamp(ctx) });
+    entry = { id: uuid(), partyType: 'supplier', partyId: supplierId, date: isoDate(), debit: qty * (b.costPrice || 0), credit: 0, ref: number.startsWith('PRET-') ? number : `PRET-${number}`, note: reason.trim(), hlc: stamp(ctx) };
+    await db.ledger.put(entry);
+    const a = await logAuditRow(ctx, 'purchase.return', { entity: 'batches', entityId: batchId, details: { batchNo: b.batchNo, qty, reason, supplierId } });
+    await enqueue(ctx, makeOp(ctx, 'stock', [{ tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }], [{ batchId, medicineId: b.medicineId, delta: -qty }]));
+  });
+  emit(ctx, 'stock-changed');
   return entry;
 }
 

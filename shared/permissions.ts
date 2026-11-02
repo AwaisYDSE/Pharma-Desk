@@ -37,6 +37,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'purchases.delete', label: 'Cancel purchases' },
     { key: 'purchases.receive', label: 'Receive stock into inventory' },
     { key: 'purchases.approve', label: 'Approve purchase orders and send them to suppliers' },
+    { key: 'purchases.return', label: 'Return stock to suppliers' },
   ] },
   { key: 'suppliers', label: 'Suppliers', actions: [
     { key: 'suppliers.create', label: 'Create suppliers' },
@@ -61,6 +62,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'branches.transfer', label: 'Send stock to another branch' },
     { key: 'branches.receive', label: 'Receive stock from another branch' },
   ] },
+  { key: 'stocktools', label: 'Stock tools', actions: [] },
   { key: 'reports', label: 'Reports', actions: [
     { key: 'reports.profit', label: 'See cost prices & profit' },
     { key: 'reports.export', label: 'Export reports (CSV)' },
@@ -92,14 +94,14 @@ const pick = (...keys: string[]) => keys;
 export const ROLE_PRESETS: Record<string, { label: string; perms: string[] }> = {
   admin: { label: 'Admin (owner)', perms: ALL_PERMS },
   pharmacist: { label: 'Pharmacist / Supervisor', perms: pick(
-    'branches', 'branches.receive', 'dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'ai',
+    'branches', 'branches.receive', 'stocktools', 'dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'ai',
     'pos.discount', 'pos.price', 'pos.credit_sale', 'pos.override_fefo', 'pos.negative_stock',
     'invoices.view_all', 'invoices.reprint', 'invoices.void', 'invoices.refund', 'messages.send',
     'inventory.create', 'inventory.edit', 'inventory.add_stock', 'inventory.adjust',
     'purchases.create', 'purchases.edit', 'purchases.receive',
     'suppliers.create', 'suppliers.edit', 'patients.create', 'patients.edit', 'patients.payment', 'patients.rx') },
   cashier: { label: 'Cashier', perms: pick('pos', 'invoices', 'invoices.reprint', 'patients', 'patients.create', 'alerts', 'ai') },
-  storekeeper: { label: 'Store keeper', perms: pick('inventory', 'purchases', 'suppliers', 'alerts',
+  storekeeper: { label: 'Store keeper', perms: pick('stocktools', 'inventory', 'inventory.adjust', 'purchases.return', 'purchases', 'suppliers', 'alerts',
     'inventory.create', 'inventory.edit', 'purchases.create', 'purchases.edit', 'purchases.receive', 'suppliers.create', 'suppliers.edit') },
   viewer: { label: 'Viewer (read only)', perms: pick('dashboard', 'reports') },
 };
@@ -113,7 +115,7 @@ export function can(user: Pick<User, 'role' | 'perms' | 'active'> | null | undef
 /** Which module a synced table belongs to, for create / edit / delete checks. */
 export const TABLE_PERM: Record<string, string> = {
   medicines: 'inventory', suppliers: 'suppliers', patients: 'patients', purchases: 'purchases', purchaseItems: 'purchases', users: 'users',
-  expenses: 'accounts',
+  expenses: 'accounts', closings: 'accounts',
 };
 
 /** create / edit / delete permission for saving a row, given what was there before. */

@@ -54,6 +54,7 @@ export class PharmaDB extends Dexie {
     });
     this.version(2).stores({ shop: 'id', medicines: 'id, name, generic, barcode, *altBarcodes, hlc, source' });
     this.version(3).stores({ expenses: 'id, date, category', refunds: 'id, invoiceId, date', purchaseItems: 'id, purchaseId, medicineId' });
+    this.version(4).stores({ closings: 'id, date' });
   }
   tbl(name: SyncTable) { return this.table(name) as Table<Synced, string>; }
 }

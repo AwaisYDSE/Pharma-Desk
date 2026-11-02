@@ -4,7 +4,10 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useStore, useLive } from '../store.tsx';
-import { Icon, Empty, CountUp } from '../components.tsx';
+import { Icon, Empty, CountUp, useAsync } from '../components.tsx';
+import { toPaisa } from '../../../shared/money.ts';
+import { saveRecord, setOpeningBalance } from '../../core/inventory.ts';
+import type { CashClosing } from '../../../shared/types.ts';
 import { money } from '../i18n.ts';
 import { can } from '../../../shared/permissions.ts';
 import { isoDate } from '../../../shared/util.ts';
@@ -12,7 +15,7 @@ import { presetRange } from '../../../shared/accounting.ts';
 import { statement, moneyBook, agedBalances, businessPosition, type EntryKind, type Method, type BooksData } from '../../../shared/books.ts';
 
 const KIND: Record<EntryKind, [string, string]> = {
-  sale: ['Sale', 'ok'], sale_return: ['Return', 'warn'], purchase: ['Purchase', 'info'], receipt: ['Payment received', 'ok'], payment: ['Payment made', 'bad'], expense: ['Expense', 'bad'],
+  sale: ['Sale', 'ok'], sale_return: ['Return', 'warn'], purchase: ['Purchase', 'info'], purchase_return: ['Return to supplier', 'warn'], receipt: ['Payment received', 'ok'], payment: ['Payment made', 'bad'], expense: ['Expense', 'bad'],
 };
 const METHOD: Record<Method, string> = { cash: 'Cash', bank: 'Card / bank', credit: 'Credit' };
 
@@ -84,12 +87,78 @@ function Statements({ data }: { data: BooksData }) {
   );
 }
 
+/** End of day: count the drawer, compare with the cash book, keep the result. */
+function CloseDay({ data }: { data: BooksData }) {
+  const { ctx, lang, user, shop, toast } = useStore();
+  const today = isoDate();
+  const expected = moneyBook(data, 'cash', today, today, shop?.openingCash || 0).closing;
+  const [counted, setCounted] = useState(''), [note, setNote] = useState('');
+  const list = useLive(async () => (await ctx.db.table('closings').toArray() as CashClosing[]).filter(c => !c.deleted).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 14), [], [] as CashClosing[]);
+  const save = useAsync(async () => {
+    const c = toPaisa(counted);
+    await saveRecord<CashClosing>(ctx, 'closings', { date: today, expected, counted: c, difference: c - expected, note, userId: user?.id || null, userName: user?.name || null, at: new Date().toISOString() });
+    setCounted(''); setNote(''); toast('ok', 'Day closed');
+  });
+  const diff = counted ? toPaisa(counted) - expected : 0;
+  return (
+    <section className="card col"><h2>Close the day</h2>
+      {can(user, 'accounts.create') && <>
+        <div className="row" style={{ gap: 10 }}>
+          <div className="col" style={{ gap: 2 }}><span className="small muted">Should be in the drawer</span><strong>{money(expected, lang)}</strong></div>
+          <label className="field" style={{ width: 150 }}>Cash counted<input className="input num" inputMode="decimal" value={counted} onChange={e => setCounted(e.target.value)} /></label>
+          <label className="field" style={{ flex: 1, minWidth: 180 }}>Note<input className="input" value={note} onChange={e => setNote(e.target.value)} /></label>
+          {counted && <div className="col" style={{ gap: 2 }}><span className="small muted">Difference</span><strong style={{ color: diff ? 'var(--bad)' : 'var(--ok)' }}>{money(diff, lang)}</strong></div>}
+          <button type="button" className="btn primary" style={{ alignSelf: 'flex-end' }} disabled={!counted || save.busy} onClick={() => void save.run()}>Close the day</button>
+        </div>
+        {save.err && <span className="err">{save.err}</span>}</>}
+      {list.length > 0 && <div className="table-wrap"><table className="t"><thead><tr><th>Date</th><th>Closed by</th><th>Should be in the drawer</th><th>Cash counted</th><th>Difference</th><th>Note</th></tr></thead>
+        <tbody>{list.map(c => <tr key={c.id}><td className="num">{c.date}</td><td>{c.userName}</td><td className="num">{money(c.expected, lang)}</td><td className="num">{money(c.counted, lang)}</td><td className="num" style={c.difference ? { color: 'var(--bad)', fontWeight: 700 } : undefined}>{money(c.difference, lang)}</td><td>{c.note}</td></tr>)}</tbody></table></div>}
+    </section>
+  );
+}
+
+/** Optional. Nothing here is needed to use the software. */
+function Opening({ data }: { data: BooksData }) {
+  const { ctx, user, shop, toast } = useStore();
+  const [cash, setCash] = useState(shop?.openingCash ? String(shop.openingCash / 100) : ''), [bank, setBank] = useState(shop?.openingBank ? String(shop.openingBank / 100) : '');
+  const [party, setParty] = useState(''), [amt, setAmt] = useState('');
+  const saveMoney = useAsync(async () => { await saveRecord(ctx, 'shop', { ...(shop || {}), id: 'shop', openingCash: toPaisa(cash), openingBank: toPaisa(bank) } as never); toast('ok', 'Saved'); });
+  const saveParty = useAsync(async () => {
+    const [type, id] = party.split(':') as ['patient' | 'supplier', string];
+    await setOpeningBalance(ctx, type, id, toPaisa(amt), isoDate());
+    setParty(''); setAmt(''); toast('ok', 'Saved');
+  });
+  if (!user?.owner) return null;
+  return (
+    <details className="card"><summary style={{ cursor: 'pointer', fontWeight: 700 }}>Starting balances (optional)</summary>
+      <div className="col" style={{ marginTop: 12 }}>
+        <span className="small muted">Only if you want the figures to include money from before PharmaDesk.</span>
+        <div className="row" style={{ gap: 10 }}>
+          <label className="field" style={{ width: 150 }}>Cash<input className="input num" inputMode="decimal" value={cash} onChange={e => setCash(e.target.value)} /></label>
+          <label className="field" style={{ width: 150 }}>Card / bank<input className="input num" inputMode="decimal" value={bank} onChange={e => setBank(e.target.value)} /></label>
+          <button type="button" className="btn" style={{ alignSelf: 'flex-end' }} disabled={saveMoney.busy} onClick={() => void saveMoney.run()}>Save</button>
+        </div>
+        {saveMoney.err && <span className="err">{saveMoney.err}</span>}
+        <div className="row" style={{ gap: 10 }}>
+          <label className="field" style={{ minWidth: 220 }}>Customer or supplier<select className="input" value={party} onChange={e => setParty(e.target.value)}><option value="">Choose</option>
+            <optgroup label="Customers">{(data.patients || []).filter(p => !p.deleted).map(p => <option key={p.id} value={`patient:${p.id}`}>{p.name}</option>)}</optgroup>
+            <optgroup label="Suppliers">{(data.suppliers || []).filter(s => !s.deleted).map(s => <option key={s.id} value={`supplier:${s.id}`}>{s.name}</option>)}</optgroup></select></label>
+          <label className="field" style={{ width: 150 }}>Amount<input className="input num" inputMode="decimal" value={amt} onChange={e => setAmt(e.target.value)} /></label>
+          <button type="button" className="btn" style={{ alignSelf: 'flex-end' }} disabled={!party || !amt || saveParty.busy} onClick={() => void saveParty.run()}>Add balance</button>
+        </div>
+        {saveParty.err && <span className="err">{saveParty.err}</span>}
+      </div>
+    </details>
+  );
+}
+
 function CashBook({ data }: { data: BooksData }) {
-  const { lang, t, user } = useStore();
+  const { lang, t, user, shop } = useStore();
   const today = isoDate();
   const [range, setRange] = useState(() => { const r = presetRange('month', today); return { from: r.from, to: r.to }; });
   const [book, setBook] = useState<'cash' | 'bank'>('cash');
-  const b = useMemo(() => moneyBook(data, book, range.from, range.to), [data, book, range]);
+  const start = book === 'cash' ? shop?.openingCash || 0 : shop?.openingBank || 0;
+  const b = useMemo(() => moneyBook(data, book, range.from, range.to, start), [data, book, range, start]);
   const csv = () => downloadCsv(`pharmadesk-${book}-book-${range.from}-to-${range.to}.csv`, [
     ['Date', 'Type', 'Document', 'Customer or supplier', 'Money in', 'Money out', 'Balance'],
     ['', 'Opening balance', '', '', '', '', r2(b.opening)],
@@ -100,6 +169,7 @@ function CashBook({ data }: { data: BooksData }) {
       <div className="row"><h1>{book === 'cash' ? 'Cash book' : 'Card and bank book'}</h1><span className="spacer" />
         <div className="tabs" role="tablist">{([['cash', 'Cash'], ['bank', 'Card / bank']] as ['cash' | 'bank', string][]).map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={book === k} className={book === k ? 'on' : ''} onClick={() => setBook(k)}>{l}</button>)}</div>
         {can(user, 'reports.export') && <button type="button" className="btn sm" onClick={csv}><Icon name="download" size={16} /> CSV</button>}</div>
+      {book === 'cash' && <CloseDay data={data} />}
       <div className="row" style={{ gap: 10 }}><Dates from={range.from} to={range.to} set={setRange} /></div>
       <div className="grid g-auto">
         <Kpi i={0} label="Opening balance" value={b.opening} /><Kpi i={1} label="Money in" value={b.moneyIn} color="var(--ok)" />
@@ -135,7 +205,8 @@ function Owes({ data }: { data: BooksData }) {
 }
 
 function Position({ data }: { data: BooksData }) {
-  const p = useMemo(() => businessPosition(data, isoDate()), [data]);
+  const { shop } = useStore();
+  const p = useMemo(() => businessPosition(data, isoDate(), shop?.openingCash || 0, shop?.openingBank || 0), [data, shop]);
   return (
     <>
       <div className="row"><h1>Business position</h1></div>
@@ -143,7 +214,8 @@ function Position({ data }: { data: BooksData }) {
         <Kpi i={0} label="Cash" value={p.cash} /><Kpi i={1} label="Card / bank" value={p.bank} /><Kpi i={2} label="Stock at cost" value={p.stock} /><Kpi i={3} label="Customers owe us" value={p.receivable} color="var(--ok)" />
         <Kpi i={4} label="We owe suppliers" value={p.payable} color="var(--bad)" /><Kpi i={5} label="Business worth" value={p.worth} color="var(--info)" />
       </div>
-      <p className="small muted">Worked out from what is recorded in PharmaDesk. It does not include money the business had before it started using PharmaDesk.</p>
+      <p className="small muted">Worked out from what is recorded in PharmaDesk. It does not include money the business had before it started using PharmaDesk, unless you add it under Starting balances.</p>
+      <Opening data={data} />
     </>
   );
 }

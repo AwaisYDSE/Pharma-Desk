@@ -7,6 +7,8 @@ import { AnimatePresence } from 'framer-motion';
 import { useStore, useLive } from '../store.tsx';
 import { Icon, Modal, Empty, Toggle, SupervisorPrompt, useAsync, PhotoPicker, confirmAsk } from '../components.tsx';
 import { money } from '../i18n.ts';
+import { whatsappLink } from '../../../shared/reports.ts';
+import { billing } from '../../../shared/region.ts';
 import { can } from '../../../shared/permissions.ts';
 import { toPaisa, pctToBp } from '../../../shared/money.ts';
 import { isoDate, daysBetween, addDays, escapeHtml } from '../../../shared/util.ts';
@@ -486,12 +488,13 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
   }, [purchases.length], [] as Medicine[]);
   const meds = useLive(() => ctx.db.medicines.filter(m => !m.deleted).toArray(), [], [] as Medicine[]);
   const [amt, setAmt] = useState('');
+  const [payBy, setPayBy] = useState<'cash' | 'bank'>('cash');
   const [newRx, setNewRx] = useState({ medicineId: '', everyDays: '30', qty: '30' });
   const canPay = can(user, kind === 'suppliers' ? 'suppliers.payment' : 'patients.payment');
   const pay = useAsync(async () => {
     const v = rs(amt);
     if (!(v > 0)) throw new Error('Enter an amount above 0');
-    await recordPayment(ctx, pType, party.id, v, kind === 'suppliers' ? 'Paid to supplier' : 'Received from customer');
+    await recordPayment(ctx, pType, party.id, v, kind === 'suppliers' ? 'Paid to supplier' : 'Received from customer', payBy);
     setAmt(''); toast('ok', 'Payment saved');
   });
   const tabs: [string, string][] = kind === 'suppliers'
@@ -508,6 +511,7 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
         </div>
         <div className="card row"><div className="col" style={{ gap: 0 }}><span className="small muted">{kind === 'suppliers' ? 'We owe this supplier' : 'Credit — customer owes'}</span><span className="big num">{money(bal, lang as never)}</span></div><span className="spacer" />
           {canPay && <form className="row" onSubmit={e => { e.preventDefault(); void pay.run(); }}><input className="input num" style={{ width: 130 }} inputMode="decimal" placeholder="Rs" value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} />
+            <select className="input" style={{ width: 130 }} aria-label="Payment" value={payBy} onChange={e => setPayBy(e.target.value as 'cash' | 'bank')}><option value="cash">Cash</option><option value="bank">Card / bank</option></select>
             <button className="btn primary" disabled={!amt || pay.busy}>{kind === 'suppliers' ? 'Pay' : 'Receive payment'}</button>{pay.err && <span className="err">{pay.err}</span>}</form>}</div>
         <Tabs value={tab} onChange={setTab} tabs={tabs} />
         {tab === 'purchases' && (purchases.length === 0 ? <Empty icon="truck" text="No purchases from this supplier yet" /> : <div className="table-wrap"><table className="t"><thead><tr><th>#</th><th>Date</th><th>{t('total')}</th><th>Status</th></tr></thead><tbody>
@@ -588,7 +592,12 @@ function InvoiceDetail({ inv, onClose }: { inv: Invoice & { rejected?: string };
         <div className="row"><span className={`badge ${(INV_STATUS[inv.status] || ['', ''])[1]}`}>{(INV_STATUS[inv.status] || [inv.status])[0]}</span>{inv.fbrNumber && <span className="badge num">FBR {inv.fbrNumber}</span>}<span className="muted num">{new Date(inv.createdAt).toLocaleString(dateLocale())}</span>
           <span className="small muted">by {cashier?.name || '—'}</span>
           {patient && <Link onClick={() => { onClose(); navigate('patients', { open: 'patient', id: patient.id }); }}><Icon name="users" size={14} /> {patient.name}</Link>}<span className="spacer" />
-          {can(user, 'invoices.reprint') && <><button type="button" className="btn sm" onClick={() => printer.enqueue(inv.id)}><Icon name="print" size={16} /> {t('reprint')}</button>
+          {can(user, 'invoices.reprint') && <><button type="button" className="btn sm" onClick={async () => {
+            const [pat, lines, shopRow] = await Promise.all([inv.patientId ? ctx.db.patients.get(inv.patientId) : null, ctx.db.invoiceItems.where('invoiceId').equals(inv.id).toArray(), ctx.db.shop.get('shop')]);
+            const body = [shopRow?.name || '', `${inv.number}`, ...lines.map(l => `${l.name || ''} x ${l.qty}: ${money(l.total, lang)}`), `${t('total')}: ${money(inv.total, lang)}`].join('\n');
+            window.open(whatsappLink(pat?.phone, body, billing(shopRow?.billing).region), '_blank', 'noopener');
+          }}><Icon name="phone" size={16} /> WhatsApp</button>
+          <button type="button" className="btn sm" onClick={() => printer.enqueue(inv.id)}><Icon name="print" size={16} /> {t('reprint')}</button>
             <button type="button" className="btn sm" onClick={async () => { const d = await receiptData(ctx, inv.id, settings); if (d) downloadReceipt(d); }}><Icon name="download" size={16} /> PDF</button></>}
           {can(user, 'messages.send') && !inv.rejected && <button type="button" className="btn sm" disabled={!online} title={online ? '' : 'Needs the server'} onClick={() => setSending(true)}><Icon name="send" size={16} /> Send bill</button>}
           {!['void', 'refunded'].includes(inv.status) && !inv.rejected && <button type="button" className="btn sm" onClick={() => setReturning(true)}>Return items</button>}
