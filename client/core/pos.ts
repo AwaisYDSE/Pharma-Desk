@@ -136,7 +136,7 @@ export function totals(cart: Cart) {
     { billDiscount: cart.billDiscount, inclusive: cart.inclusive });
 }
 
-export interface Payment { method: Invoice['payMethod']; paid: number }
+export interface Payment { method: Invoice['payMethod']; paid: number; accountId?: string | null; accountName?: string | null; payRef?: string | null }
 
 /**
  * Checkout. Builds the invoice + items + stock deltas as ONE operation.
@@ -166,7 +166,7 @@ export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: Serve
     id: invoiceId, number: await nextBillNumber(ctx), patientId: cart.patientId, cashierId: ctx.user.id, createdAt: now,
     status: pay.method === 'credit' ? 'credit' : 'paid', gross: t.gross, discount: t.discount, tax: t.tax, total: t.total,
     paid: pay.method === 'credit' ? 0 : pay.paid, change: pay.method === 'credit' ? 0 : pay.paid - t.total, payMethod: pay.method,
-    deviceId: ctx.deviceId, hlc: stamp(ctx),
+    deviceId: ctx.deviceId, accountId: pay.accountId ?? null, accountName: pay.accountName ?? null, payRef: pay.payRef ?? null, hlc: stamp(ctx),
     ...(opts.supervisorId ? { note: `approved by ${opts.supervisorId}` } : {}),
   };
   const items: InvoiceItem[] = cart.lines.map((l, i) => ({
@@ -307,7 +307,7 @@ export async function refundItems(ctx: Ctx, invoiceId: string, lines: { itemId: 
   const credit = (inv.baseStatus || inv.status) === 'credit';
   const refund: Refund = {
     id: uuid(), invoiceId, number: await nextNumber(ctx, 'RET'), date: isoDate(), createdAt: now, userId: ctx.user!.id, approvedBy: approver.id,
-    reason: reason.trim(), method: credit ? 'credit' : inv.payMethod === 'card' ? 'card' : 'cash', items: out, total, tax, hlc: stamp(ctx),
+    reason: reason.trim(), method: credit ? 'credit' : inv.payMethod === 'cash' ? 'cash' : 'card', accountId: inv.accountId ?? null, accountName: inv.accountName ?? null, items: out, total, tax, hlc: stamp(ctx),
   };
   const allBack = items.every(it => (before.get(it.id) || 0) + (out.find(o => o.itemId === it.id)?.qty || 0) >= it.qty);
   const updated: Invoice = { ...inv, baseStatus: inv.baseStatus || (inv.status === 'credit' ? 'credit' : 'paid'), status: allBack ? 'refunded' : 'partial_refund', refunded: (inv.refunded || 0) + total, hlc: stamp(ctx) };

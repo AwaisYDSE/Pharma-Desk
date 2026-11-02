@@ -26,7 +26,9 @@ export type InvoiceStatus = 'paid' | 'credit' | 'partial_refund' | 'refunded' | 
 export interface Invoice extends Synced {
   number: string; patientId?: string | null; cashierId: string; createdAt: string; status: InvoiceStatus;
   gross: number; discount: number; tax: number; total: number; paid: number; change: number;
-  payMethod: 'cash' | 'card' | 'wallet' | 'credit'; deviceId: string; conflict?: boolean; note?: string;
+  payMethod: 'cash' | 'card' | 'bank' | 'wallet' | 'credit'; deviceId: string;
+  /** Which of the owner's bank or wallet accounts took the money, and its reference number. */
+  accountId?: string | null; accountName?: string | null; payRef?: string | null; conflict?: boolean; note?: string;
   /** FBR (Pakistan) invoice number once the bill was reported. */
   fbrNumber?: string | null; fbrError?: string | null;
   /** Total money given back for returned items (paisa). */
@@ -66,6 +68,7 @@ export interface PurchaseItem extends Synced {
 /** Money going out that is not a supplier bill: rent, salaries, electricity… */
 export interface Expense extends Synced {
   date: string; category: string; amount: number; payMethod: 'cash' | 'card' | 'bank' | 'wallet';
+  accountId?: string | null; accountName?: string | null;
   note?: string; paidTo?: string; userId?: string | null;
   /** Tax paid inside this expense (paisa), if any. */
   tax?: number;
@@ -74,6 +77,7 @@ export interface Expense extends Synced {
 export interface Refund extends Synced {
   invoiceId: string; number: string; date: string; createdAt: string; userId: string | null; approvedBy?: string | null;
   reason: string; method: 'cash' | 'card' | 'credit';
+  accountId?: string | null; accountName?: string | null;
   items: { itemId: string; medicineId: string; batchId: string; qty: number; amount: number; tax: number; cost: number; name?: string }[];
   total: number; tax: number;
 }
@@ -84,7 +88,8 @@ export interface LedgerEntry extends Synced {
   /** Made at another branch (customers shared): counts in the balance, not in this branch's cash. */
   foreign?: boolean; originBranch?: string;
   /** How a payment moved. Older entries have none and count as cash. */
-  method?: 'cash' | 'bank';
+  method?: 'cash' | 'bank' | 'wallet';
+  accountId?: string | null; accountName?: string | null;
 }
 export interface User extends Synced {
   username: string; name: string; email?: string; role: string; perms: string[]; active: boolean;
@@ -98,6 +103,10 @@ export interface User extends Synced {
   photo?: string | null;
 }
 /** One row (id "shop"): name, logo and details printed on receipts — the same on every device. */
+/** A bank or mobile wallet account the shop takes money in. */
+export interface PayAccount { id: string; type: 'bank' | 'wallet'; provider: string; title: string; number: string; active: boolean; opening?: number }
+/** Money moved between the shop's own accounts, such as cash deposited in the bank. */
+export interface MoneyMove extends Synced { date: string; from: string; to: string; fromName: string; toName: string; amount: number; note?: string; userName?: string | null; at: string }
 export interface Shop extends Synced {
   name: string; logo?: string | null; address?: string; phone?: string; ntn?: string; strn?: string; drugLicense?: string;
   receiptFooter?: string; catalogChoice?: 'builtin' | 'own';
@@ -113,6 +122,8 @@ export interface Shop extends Synced {
   branchesOn?: boolean;
   /** Optional: money the business had before it started using PharmaDesk (paisa). */
   openingCash?: number; openingBank?: number;
+  /** The owner's bank and wallet accounts. Only these appear at checkout. */
+  payAccounts?: PayAccount[];
   /** Set by the server when the licence ends within 7 days. */
   planWarn?: { daysLeft: number; vendor: string } | null;
   /** FBR reporting is on (Pakistan only) — devices wait briefly for the FBR number before printing. */
@@ -126,7 +137,7 @@ export interface AuditEntry extends Synced {
 /** All tables that sync between the server and devices. */
 export const SYNC_TABLES = [
   'medicines', 'batches', 'suppliers', 'patients', 'prescriptions', 'invoices', 'invoiceItems',
-  'purchases', 'purchaseItems', 'ledger', 'users', 'audit', 'shop', 'expenses', 'refunds', 'closings',
+  'purchases', 'purchaseItems', 'ledger', 'users', 'audit', 'shop', 'expenses', 'refunds', 'closings', 'moneyMoves',
 ] as const;
 export type SyncTable = typeof SYNC_TABLES[number];
 

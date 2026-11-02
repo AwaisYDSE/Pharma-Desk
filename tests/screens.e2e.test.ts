@@ -76,9 +76,8 @@ describe('New screens', () => {
     await page.keyboard.type('Accounts');
     await shot('jump');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(500);
-    await expect(page.locator('.jump').count()).resolves.toBe(0);
-    await expect(page.getByRole('tab', { name: 'Cash book' }).count()).resolves.toBe(1);
+    await page.locator('.jump').waitFor({ state: 'detached', timeout: 8000 });
+    await page.getByRole('tab', { name: 'Cash book' }).waitFor({ timeout: 8000 });
   }, 30000);
 
   it('a locked plan shows only the banner and a box for a new key', async () => {

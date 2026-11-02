@@ -35,3 +35,15 @@ export function formatBillNumber(b: BillingOptions | null | undefined, n: number
   const num = o.invoiceDigits > 0 ? String(n).padStart(o.invoiceDigits, '0') : String(n);
   return `${o.invoicePrefix || ''}${branchCode ? branchCode + '-' : ''}${o.deviceCode && deviceCode ? deviceCode + '-' : ''}${num}`;
 }
+
+/** Banks and mobile wallets offered per region. The owner can also type any other name. */
+export const PROVIDERS: Record<string, { banks: string[]; wallets: string[] }> = {
+  pk: { banks: ['HBL', 'UBL', 'MCB', 'Allied Bank', 'Meezan Bank', 'Bank Alfalah', 'National Bank of Pakistan', 'Askari Bank', 'Faysal Bank', 'Bank of Punjab', 'Habib Metro', 'JS Bank', 'Standard Chartered'], wallets: ['JazzCash', 'Easypaisa', 'SadaPay', 'NayaPay', 'Upaisa'] },
+  ae: { banks: ['Emirates NBD', 'First Abu Dhabi Bank', 'ADCB', 'Dubai Islamic Bank', 'Mashreq', 'RAKBANK', 'ADIB', 'Sharjah Islamic Bank'], wallets: ['e& money', 'Careem Pay', 'Apple Pay', 'Google Pay'] },
+  sa: { banks: ['SNB', 'Al Rajhi Bank', 'Riyad Bank', 'SAB', 'Alinma Bank', 'Banque Saudi Fransi', 'Arab National Bank'], wallets: ['stc pay', 'urpay', 'Apple Pay', 'mada Pay'] },
+  in: { banks: ['State Bank of India', 'HDFC Bank', 'ICICI Bank', 'Axis Bank', 'Kotak Mahindra Bank', 'Punjab National Bank', 'Bank of Baroda'], wallets: ['UPI', 'PhonePe', 'Google Pay', 'Paytm', 'BHIM'] },
+  bd: { banks: ['Dutch-Bangla Bank', 'BRAC Bank', 'Islami Bank Bangladesh', 'Sonali Bank', 'City Bank', 'Eastern Bank'], wallets: ['bKash', 'Nagad', 'Rocket', 'Upay'] },
+  af: { banks: ['Afghanistan International Bank', 'Azizi Bank', 'Afghan United Bank', 'Ghazanfar Bank', 'Da Afghanistan Bank'], wallets: ['M-Paisa', 'HesabPay', 'Etisalat MyMoney'] },
+  other: { banks: [], wallets: [] },
+};
+export const providersFor = (region?: string | null) => PROVIDERS[region || 'pk'] || PROVIDERS.other;

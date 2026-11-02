@@ -193,11 +193,11 @@ export async function addOpeningStock(ctx: Ctx, medicineId: string, b: { batchNo
   return batch;
 }
 
-export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient', partyId: string, amount: number, note = '', method: 'cash' | 'bank' = 'cash') {
+export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient', partyId: string, amount: number, note = '', method: 'cash' | 'bank' | 'wallet' = 'cash', account?: { id: string; name: string } | null) {
   if (!can(ctx.user, partyType === 'supplier' ? 'suppliers.payment' : 'patients.payment')) throw new PermissionError();
   const db = ctx.db;
   const entry: LedgerEntry = {
-    id: uuid(), partyType, partyId, date: isoDate(), ref: 'PAYMENT', note, method, hlc: stamp(ctx),
+    id: uuid(), partyType, partyId, date: isoDate(), ref: 'PAYMENT', note, method, accountId: account?.id ?? null, accountName: account?.name ?? null, hlc: stamp(ctx),
     debit: partyType === 'supplier' ? amount : 0, credit: partyType === 'patient' ? amount : 0,
   };
   await db.transaction('rw', db.ledger, db.outbox, db.audit, async () => {
@@ -206,6 +206,13 @@ export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient',
     await enqueue(ctx, makeOp(ctx, 'upsert', [{ tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }]));
   });
   return entry;
+}
+
+/** Move money between the shop's own accounts, such as cash deposited in the bank. Not a sale or an expense. */
+export async function moveMoney(ctx: Ctx, m: { from: string; to: string; fromName: string; toName: string; amount: number; date: string; note?: string; types?: Record<string, string> }) {
+  if (!Number.isInteger(m.amount) || m.amount <= 0) throw new AppError('INVALID', 'Enter an amount above 0');
+  if (m.from === m.to) throw new AppError('INVALID', 'Choose two different accounts');
+  return saveRecord(ctx, 'moneyMoves', { ...m, userName: ctx.user?.name || null, at: new Date().toISOString() });
 }
 
 /** Optional: what a customer owed or a supplier was owed before PharmaDesk. Shows on their account. */

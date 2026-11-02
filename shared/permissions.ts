@@ -115,7 +115,7 @@ export function can(user: Pick<User, 'role' | 'perms' | 'active'> | null | undef
 /** Which module a synced table belongs to, for create / edit / delete checks. */
 export const TABLE_PERM: Record<string, string> = {
   medicines: 'inventory', suppliers: 'suppliers', patients: 'patients', purchases: 'purchases', purchaseItems: 'purchases', users: 'users',
-  expenses: 'accounts', closings: 'accounts',
+  expenses: 'accounts', closings: 'accounts', moneyMoves: 'accounts',
 };
 
 /** create / edit / delete permission for saving a row, given what was there before. */

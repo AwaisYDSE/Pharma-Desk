@@ -304,3 +304,4 @@ h1 { letter-spacing: -.02em; }
 .input { transition: border-color .15s ease, box-shadow .15s ease; }
 .input:focus { box-shadow: 0 0 0 3px var(--accentSoft); }
 .badge { font-weight: 700; }
+.pay-to { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--accentSoft); }

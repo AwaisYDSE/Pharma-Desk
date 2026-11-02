@@ -62,7 +62,7 @@ export function receiptHtml(r: ReceiptData): string {
   ${inv.discount ? `<tr><td>Discount</td><td class="n">- ${fmt(inv.discount, c)}</td></tr>` : ''}
   ${inv.tax ? `<tr><td>${escapeHtml(b.taxLabel)}${s.pricesIncludeGst ? ' (incl.)' : ''}</td><td class="n">${fmt(inv.tax, c)}</td></tr>` : ''}
   <tr class="big"><td>TOTAL</td><td class="n">${fmt(inv.total, c)}</td></tr>
-  <tr><td>Paid (${escapeHtml(inv.payMethod)})</td><td class="n">${fmt(inv.paid, c)}</td></tr>
+  <tr><td>Paid (${escapeHtml(inv.accountName || inv.payMethod)}${inv.payRef ? ' · ' + escapeHtml(inv.payRef) : ''})</td><td class="n">${fmt(inv.paid, c)}</td></tr>
   ${inv.change ? `<tr><td>Change</td><td class="n">${fmt(inv.change, c)}</td></tr>` : ''}
   ${inv.status === 'credit' ? `<tr><td>Balance due</td><td class="n">${fmt(inv.total - inv.paid, c)}</td></tr>` : ''}</table>
   ${inv.refunded ? `<table class="t"><tr><td>Returned</td><td class="n">- ${fmt(inv.refunded, c)}</td></tr></table>` : ''}

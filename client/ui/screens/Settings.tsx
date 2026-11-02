@@ -8,7 +8,7 @@ import { saveRecord } from '../../core/inventory.ts';
 import { LANGS } from '../i18n.ts';
 import { can } from '../../../shared/permissions.ts';
 import type { Settings as S } from '../../core/settings.ts';
-import { BillsCard, AutomationCard, MessagesCard, FbrCard } from './SettingsMore.tsx';
+import { PayAccountsCard, BillsCard, AutomationCard, MessagesCard, FbrCard } from './SettingsMore.tsx';
 
 /** Copies a backup to a USB drive or another folder after every automatic backup. */
 function BackupFolder() {
@@ -89,6 +89,7 @@ export function Settings() {
             <button type="button" className="btn danger" onClick={async () => { if (await confirmAsk({ message: ctx.standalone ? 'Erase everything on this device? This cannot be undone — download a backup first.' : 'Disconnect this device from the shop and delete its copy of the data? Unsynced sales will be lost.', danger: true, confirmText: ctx.standalone ? 'Erase' : 'Disconnect' })) { await ctx.db.delete(); location.reload(); } }}>{ctx.standalone ? 'Erase this device' : 'Disconnect this device'}</button>
           </section>
         <BillsCard />
+        <PayAccountsCard />
       </div>
       {user?.owner && <section className="card col" style={{ marginTop: 4 }}>
         <label className="row"><Toggle on={!!shop?.branchesOn} label="This shop has more than one branch" onChange={v => void saveRecord(ctx, 'shop', { ...(shop || {}), id: 'shop', branchesOn: v } as never).catch(e => toast('bad', (e as Error).message))} /> <strong>This shop has more than one branch</strong> <span className="small muted">Off for a single shop. Switch on to connect several branches.</span></label>

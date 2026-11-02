@@ -41,6 +41,10 @@ stays on its own PC.
 | **Owner supervision** | The owner account is created on first start and can never be deleted. The owner adds/deletes users and switches **each module on or off per user**, sees who is working now, and can log anyone out or disable them instantly. Every login, logout, failed PIN, discount, void, stock change and **server PC on/off (including power cuts)** is recorded in the activity log. |
 | **AI (Gemini key)** | Reads typed or photographed prescriptions, warns about drug interactions on the bill, writes a daily summary in English or Urdu. When AI is unavailable (no key, no internet, free limit reached) it falls back to a built-in reader and interaction list — billing never stops. |
 | **Languages** | English, Urdu (full right-to-left, Nastaliq font), Arabic, Hindi, Spanish — switch instantly. |
+| **Accounts** | Statements by customer or supplier, cash, credit, bank or wallet, for sales, purchases or both, with totals by day, month, party, payment, account or staff. Cash book, bank and wallet books, money accounts, who owes what by age, business position, daily cash closing, optional starting balances. |
+| **Banks and wallets** | The owner adds each bank or mobile wallet account (HBL, JazzCash, Easypaisa, SadaPay and others for each region). Only those appear at checkout, and the money shows in Accounts. |
+| **Stock tools** | Stock count, supplier returns, expiry loss, dead stock, profit per medicine. |
+| **Branches (owner's choice)** | Head office and branches each with their own server PC and key: shared medicines and suppliers, stock transfers, reports for all branches. |
 | **Reports** | Sales, profit (permission-controlled), top sellers, per-cashier totals, CSV export. |
 | **Receipts** | 80mm/58mm thermal (USB ESC/POS in Chrome/Edge) or any printer; if the printer is off the receipt waits in a queue and prints when it's back; PDF copy always available. |
 

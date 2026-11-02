@@ -26,7 +26,10 @@ export function Pos() {
   const [sel, setSel] = useState(0);
   const [mood, setMood] = useState<Mood>('idle');
   const [bubble, setBubble] = useState('');
-  const [pay, setPay] = useState<'cash' | 'card' | 'credit'>('cash');
+  const [pay, setPay] = useState<string>('cash');
+  const [payRef, setPayRef] = useState('');
+  const accounts = (s.shop?.payAccounts || []).filter(a => a.active);
+  const account = pay.startsWith('acc:') ? accounts.find(a => a.id === pay.slice(4)) : undefined;
   const [received, setReceived] = useState('');
   const [discPct, setDiscPct] = useState('');
   const [warnings, setWarnings] = useState<InteractionWarning[]>([]);
@@ -98,10 +101,10 @@ export function Pos() {
     const pct = Number(discPct || 0);
     cart.billDiscount = pct > 0 ? Math.round(totals({ ...cart, billDiscount: 0 }).total * pct / 100) : 0;
     const total = totals(cart).total;
-    const paid = pay === 'credit' ? 0 : (received ? toPaisa(received) : total);
+    const paid = pay === 'credit' ? 0 : (pay === 'cash' && received ? toPaisa(received) : total);
     setBusy(true);
     try {
-      const r = await checkout(ctx, cart, { method: pay, paid }, client, { supervisorId });
+      const r = await checkout(ctx, cart, account ? { method: account.type, paid, accountId: account.id, accountName: `${account.provider} · ${account.title}`, payRef: payRef.trim() || null } : { method: pay as 'cash' | 'card' | 'credit', paid }, client, { supervisorId });
       setLastInvoice(r.invoice.id);
       say('party', lang === 'ur' ? 'شکریہ! آپ کا بل تیار ہے' : `Thank you! Change: ${money(r.invoice.change, lang)}`);
       toast('ok', `${t('saleDone')} · ${r.invoice.number}`, r.offline ? 'Saved on this device — will sync when the server is back.' : money(r.invoice.total, lang));
@@ -112,7 +115,7 @@ export function Pos() {
           .then(async x => { if (x.fbrNumber) await s.sync.syncNow().catch(() => {}); else if (x.error) toast('warn', 'FBR', `${x.error} — it will be reported again automatically.`); })
           .catch(() => {}).finally(printIt);
       } else printIt();
-      setCart(newCart(settings.pricesIncludeGst)); setReceived(''); setDiscPct(''); setPay('cash');
+      setCart(newCart(settings.pricesIncludeGst)); setReceived(''); setDiscPct(''); setPay('cash'); setPayRef('');
       setTimeout(() => say('idle', ''), 2500);
     } catch (e) {
       const err = e as { code?: string; message: string; details?: { permission?: string } };
@@ -282,6 +285,8 @@ export function Pos() {
               <button type="button" key={m} className={`btn sm ${pay === m ? 'on' : ''}`} onClick={() => setPay(m)}>{t(m)}</button>
             ))}
           </div>
+          {accounts.length > 0 && <div className="row" style={{ gap: 6 }}>{accounts.map(a => <button type="button" key={a.id} className={`btn sm ${pay === 'acc:' + a.id ? 'on' : ''}`} onClick={() => setPay('acc:' + a.id)}>{a.provider}</button>)}</div>}
+          {account && <div className="pay-to"><strong>{`${account.provider} · ${account.title}`}</strong><span dir="ltr">{account.number}</span><input className="input" aria-label="Reference number" placeholder={t('Reference number')} value={payRef} onChange={e => setPayRef(e.target.value)} /></div>}
           {pay === 'cash' && <label className="field">{t('received')}<input className="input num" inputMode="decimal" value={received} onChange={e => setReceived(e.target.value.replace(/[^\d.]/g, ''))} placeholder={String(tot.total / 100)} /></label>}
           {pay === 'cash' && received && <div className="total-line"><span className="muted">{t('change')}</span><strong className="num" style={{ color: 'var(--ok)' }}>{money(Math.max(0, toPaisa(received) - Math.round(tot.total * (1 - Number(discPct || 0) / 100))), lang)}</strong></div>}
           <button type="button" className="btn primary" style={{ minHeight: 56, fontSize: 16 }} disabled={!cart.lines.length || busy} onClick={() => doCheckout()}>

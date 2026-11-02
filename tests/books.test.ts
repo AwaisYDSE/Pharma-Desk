@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { statement, moneyBook, agedBalances, businessPosition, type BooksData } from '../shared/books.ts';
+import { statement, moneyBook, agedBalances, businessPosition, groupEntries, accountBalances, type BooksData } from '../shared/books.ts';
 import type { Invoice, Purchase, LedgerEntry, Expense, Refund, Batch } from '../shared/types.ts';
 
 const inv = (id: string, day: string, total: number, payMethod: Invoice['payMethod'], patientId: string | null = null, status: Invoice['status'] = payMethod === 'credit' ? 'credit' : 'paid'): Invoice =>
@@ -78,5 +78,29 @@ describe('Payment method, returns and reports', () => {
   it('opening cash carries through the book and position', () => {
     expect(moneyBook(data, 'cash', all.from, all.to, 1000).opening).toBe(1000);
     expect(businessPosition(data, '2026-01-31', 1000, 0).cash).toBe(600);
+  });
+});
+
+describe('Bank and wallet accounts', () => {
+  const acc = { id: 'A', type: 'wallet' as const, provider: 'JazzCash', title: 'Shop', number: '0300', active: true, opening: 500 };
+  const d: BooksData = { ...data, purchases: [], refunds: [], expenses: [{ ...exp('E', '2026-01-08', 100, 'wallet'), accountId: 'A', accountName: 'JazzCash · Shop' }],
+    invoices: [{ ...inv('S1', '2026-01-05', 1000, 'wallet'), accountId: 'A', accountName: 'JazzCash · Shop' }, inv('S2', '2026-01-05', 300, 'cash')],
+    ledger: [{ ...led('L', 'supplier', 's1', '2026-01-06', 200, 0, 'PAYMENT'), method: 'wallet', accountId: 'A', accountName: 'JazzCash · Shop' }],
+    moneyMoves: [{ id: 'M', date: '2026-01-07', from: 'cash', to: 'acc:A', fromName: 'Cash', toName: 'JazzCash · Shop', amount: 50, at: '', types: { 'acc:A': 'wallet' } } as never] };
+  it('every sale, payment, expense and move reaches the right account', () => {
+    expect(moneyBook(d, 'acc:A', all.from, all.to, 500).closing).toBe(500 + 1000 - 200 - 100 + 50);
+    expect(moneyBook(d, 'cash', all.from, all.to).closing).toBe(300 - 50);
+  });
+  it('a move is neither a sale nor counted in statements', () => {
+    expect(statement(d, all).rows.some(r => r.kind === 'move')).toBe(false);
+    expect(statement(d, { ...all, accountId: 'A' }).totals).toMatchObject({ sales: 1000, moneyIn: 1000, moneyOut: 300 });
+  });
+  it('balances add up, and totals group by account and by payment', () => {
+    const b = accountBalances(d, [acc], all.to);
+    expect(b.named[0].balance).toBe(1250); expect(b.cash).toBe(250);
+    const rows = statement(d, all).rows;
+    expect(groupEntries(rows, 'account').find(g => g.key === 'JazzCash · Shop')).toMatchObject({ sales: 1000 });
+    expect(groupEntries(rows, 'payment').find(g => g.key === 'cash')).toMatchObject({ sales: 300 });
+    expect(groupEntries(rows, 'day').map(g => g.key)).toEqual([...new Set(rows.map(r => r.date))].sort());
   });
 });

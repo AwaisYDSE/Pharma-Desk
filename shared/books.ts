@@ -2,23 +2,24 @@
 // the cash book, who owes what, and the business position. Pure functions over the synced data,
 // so the same numbers appear on every device and offline. Money is integer paisa.
 // © Awais Amin
-import type { Invoice, Refund, Purchase, Expense, LedgerEntry, Batch, Patient, Supplier } from './types.ts';
+import type { Invoice, Refund, Purchase, Expense, LedgerEntry, Batch, Patient, Supplier, MoneyMove, PayAccount } from './types.ts';
 import { dayOf } from './accounting.ts';
 import { daysBetween } from './util.ts';
 
 export interface BooksData {
   invoices: Invoice[]; refunds: Refund[]; purchases: Purchase[]; expenses: Expense[]; ledger: LedgerEntry[];
-  batches?: Batch[]; patients?: Patient[]; suppliers?: Supplier[];
+  batches?: Batch[]; patients?: Patient[]; suppliers?: Supplier[]; moneyMoves?: MoneyMove[];
 }
 
-export type EntryKind = 'sale' | 'sale_return' | 'purchase' | 'purchase_return' | 'receipt' | 'payment' | 'expense';
-export type Method = 'cash' | 'bank' | 'credit';
+export type EntryKind = 'sale' | 'sale_return' | 'purchase' | 'purchase_return' | 'receipt' | 'payment' | 'expense' | 'move';
+export type Method = 'cash' | 'bank' | 'wallet' | 'credit';
 
 /** One line in a statement. Amount is the document's value; moneyIn and moneyOut are what actually moved. */
 export interface Entry {
   id: string; date: string; kind: EntryKind; doc: string; method: Method;
   partyType: 'patient' | 'supplier' | null; partyId: string | null; partyName: string; note: string;
   amount: number; moneyIn: number; moneyOut: number;
+  accountId?: string | null; accountName?: string | null; cashierId?: string | null;
 }
 
 export interface StatementFilter {
@@ -27,9 +28,10 @@ export interface StatementFilter {
   method?: 'all' | Method;
   partyType?: 'patient' | 'supplier' | null;
   partyId?: string | null;
+  accountId?: string | null;
 }
 
-const methodOf = (m: string | undefined): Method => m === 'credit' ? 'credit' : m === 'cash' ? 'cash' : 'bank';
+const methodOf = (m: string | undefined): Method => m === 'credit' ? 'credit' : m === 'cash' ? 'cash' : m === 'wallet' ? 'wallet' : 'bank';
 const isSalesSide = (k: EntryKind, partyType: Entry['partyType']) => k === 'sale' || k === 'sale_return' || (k === 'receipt' && partyType === 'patient');
 const isPurchaseSide = (k: EntryKind) => k === 'purchase' || k === 'purchase_return' || k === 'payment';
 
@@ -43,7 +45,7 @@ export function allEntries(data: BooksData): Entry[] {
     const method = methodOf(inv.payMethod);
     out.push({
       id: inv.id, date: dayOf(inv.createdAt), kind: 'sale', doc: inv.number, method, partyType: inv.patientId ? 'patient' : null, partyId: inv.patientId || null,
-      partyName: inv.patientId ? pName.get(inv.patientId) || '' : '', note: '', amount: inv.total, moneyIn: method === 'credit' ? 0 : inv.total, moneyOut: 0,
+      partyName: inv.patientId ? pName.get(inv.patientId) || '' : '', note: inv.payRef || '', amount: inv.total, moneyIn: method === 'credit' ? 0 : inv.total, moneyOut: 0, accountId: inv.accountId, accountName: inv.accountName, cashierId: inv.cashierId,
     });
   }
   const invById = new Map(data.invoices.map(i => [i.id, i]));
@@ -51,10 +53,10 @@ export function allEntries(data: BooksData): Entry[] {
     if (r.deleted) continue;
     const inv = invById.get(r.invoiceId);
     if (inv?.status === 'void') continue;
-    const method: Method = r.method === 'credit' ? 'credit' : r.method === 'cash' ? 'cash' : 'bank';
+    const method: Method = r.method === 'credit' ? 'credit' : r.method === 'cash' ? 'cash' : methodOf(inv?.payMethod === 'credit' ? 'card' : inv?.payMethod);
     out.push({
       id: r.id, date: dayOf(r.date || r.createdAt), kind: 'sale_return', doc: r.number, method, partyType: inv?.patientId ? 'patient' : null, partyId: inv?.patientId || null,
-      partyName: inv?.patientId ? pName.get(inv.patientId) || '' : '', note: r.reason || '', amount: r.total, moneyIn: 0, moneyOut: method === 'credit' ? 0 : r.total,
+      partyName: inv?.patientId ? pName.get(inv.patientId) || '' : '', note: r.reason || '', amount: r.total, moneyIn: 0, moneyOut: method === 'credit' ? 0 : r.total, accountId: r.accountId ?? inv?.accountId, accountName: r.accountName ?? inv?.accountName, cashierId: r.userId,
     });
   }
   for (const p of data.purchases) {
@@ -73,16 +75,25 @@ export function allEntries(data: BooksData): Entry[] {
     const sup = l.partyType === 'supplier';
     const amount = sup ? l.debit : l.credit;
     out.push({
-      id: l.id, date: l.date, kind: sup ? 'payment' : 'receipt', doc: 'PAYMENT', method: l.method === 'bank' ? 'bank' : 'cash', partyType: l.partyType, partyId: l.partyId,
+      id: l.id, date: l.date, kind: sup ? 'payment' : 'receipt', doc: 'PAYMENT', method: l.method === 'bank' ? 'bank' : l.method === 'wallet' ? 'wallet' : 'cash', accountId: l.accountId, accountName: l.accountName, partyType: l.partyType, partyId: l.partyId,
       partyName: (sup ? sName : pName).get(l.partyId) || '', note: l.note || '', amount, moneyIn: sup ? 0 : amount, moneyOut: sup ? amount : 0,
     });
   }
   for (const e of data.expenses) {
     if (e.deleted) continue;
     out.push({
-      id: e.id, date: e.date, kind: 'expense', doc: e.category || 'Other', method: e.payMethod === 'cash' ? 'cash' : 'bank', partyType: null, partyId: null,
+      id: e.id, date: e.date, kind: 'expense', doc: e.category || 'Other', method: methodOf(e.payMethod), accountId: e.accountId, accountName: e.accountName, cashierId: e.userId, partyType: null, partyId: null,
       partyName: e.paidTo || '', note: e.note || '', amount: e.amount, moneyIn: 0, moneyOut: e.amount,
     });
+  }
+  for (const m of data.moneyMoves || []) {
+    if (m.deleted) continue;
+    const side = (where: string, name: string, isIn: boolean): Entry => {
+      const acc = where.startsWith('acc:') ? where.slice(4) : null;
+      return { id: `${m.id}:${isIn ? 'in' : 'out'}`, date: m.date, kind: 'move', doc: isIn ? m.fromName : m.toName, method: acc ? (where.startsWith('acc:') && (m as MoneyMove & { types?: Record<string, Method> }).types?.[where]) || 'bank' : 'cash', accountId: acc, accountName: acc ? name : null,
+        partyType: null, partyId: null, partyName: '', note: m.note || '', amount: m.amount, moneyIn: isIn ? m.amount : 0, moneyOut: isIn ? 0 : m.amount };
+    };
+    out.push(side(m.from, m.fromName, false), side(m.to, m.toName, true));
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || a.doc.localeCompare(b.doc));
 }
@@ -93,7 +104,8 @@ export interface StatementTotals { sales: number; returns: number; purchases: nu
 export function statement(data: BooksData, f: StatementFilter): { rows: Entry[]; totals: StatementTotals } {
   const side = f.side || 'all', method = f.method || 'all';
   const rows = allEntries(data).filter(e => {
-    if (e.date < f.from || e.date > f.to) return false;
+    if (e.kind === 'move' || e.date < f.from || e.date > f.to) return false;
+    if (f.accountId && e.accountId !== f.accountId) return false;
     if (e.kind === 'expense' && (side !== 'all' || f.partyId)) return false;
     if (side === 'sales' && !isSalesSide(e.kind, e.partyType)) return false;
     if (side === 'purchases' && !isPurchaseSide(e.kind)) return false;
@@ -117,8 +129,9 @@ export function statement(data: BooksData, f: StatementFilter): { rows: Entry[];
 export interface BookLine extends Entry { balance: number }
 
 /** Cash book or bank book: opening balance, every movement with a running balance, closing balance. */
-export function moneyBook(data: BooksData, book: 'cash' | 'bank', from: string, to: string, startingBalance = 0): { opening: number; rows: BookLine[]; closing: number; moneyIn: number; moneyOut: number } {
-  const moves = allEntries(data).filter(e => e.method === book && (e.moneyIn || e.moneyOut));
+export function moneyBook(data: BooksData, book: 'cash' | 'bank' | 'wallet' | `acc:${string}`, from: string, to: string, startingBalance = 0): { opening: number; rows: BookLine[]; closing: number; moneyIn: number; moneyOut: number } {
+  const acc = book.startsWith('acc:') ? book.slice(4) : null;
+  const moves = allEntries(data).filter(e => (acc ? e.accountId === acc : e.method === book) && (e.moneyIn || e.moneyOut));
   let bal = startingBalance;
   for (const e of moves) if (e.date < from) bal += e.moneyIn - e.moneyOut;
   const opening = bal;
@@ -167,12 +180,41 @@ export function agedBalances(data: BooksData, partyType: 'patient' | 'supplier',
 }
 
 /** What the business has and owes right now. Equity is the difference, not a typed figure. */
-export function businessPosition(data: BooksData, today: string, startingCash = 0, startingBank = 0) {
+export function businessPosition(data: BooksData, today: string, startingCash = 0, startingBank = 0, startingWallet = 0) {
   const cash = moneyBook(data, 'cash', today, today, startingCash).closing;
   const bank = moneyBook(data, 'bank', today, today, startingBank).closing;
   const receivable = agedBalances(data, 'patient', today).total;
   const payable = agedBalances(data, 'supplier', today).total;
   const stock = (data.batches || []).filter(b => !b.deleted && !b.pending && b.qty > 0).reduce((s, b) => s + b.qty * (b.costPrice || 0), 0);
-  const assets = cash + bank + receivable + stock;
-  return { cash, bank, receivable, stock, assets, payable, worth: assets - payable };
+  const wallet = moneyBook(data, 'wallet', today, today, startingWallet).closing;
+  const assets = cash + bank + wallet + receivable + stock;
+  return { cash, bank, wallet, receivable, stock, assets, payable, worth: assets - payable };
+}
+
+export type GroupBy = 'day' | 'month' | 'party' | 'payment' | 'account' | 'cashier' | 'type';
+export interface GroupRow { key: string; count: number; sales: number; purchases: number; moneyIn: number; moneyOut: number }
+
+/** Totals of a statement, by day, month, customer or supplier, payment type, account, staff or type. */
+export function groupEntries(rows: Entry[], by: GroupBy, names: (id: string) => string = id => id): GroupRow[] {
+  const out = new Map<string, GroupRow>();
+  for (const e of rows) {
+    const key = by === 'day' ? e.date : by === 'month' ? e.date.slice(0, 7) : by === 'party' ? e.partyName || '—' : by === 'payment' ? e.method
+      : by === 'account' ? e.accountName || (e.method === 'cash' ? 'cash' : e.method === 'credit' ? 'credit' : e.method) : by === 'cashier' ? (e.cashierId ? names(e.cashierId) : '—') : e.kind;
+    const r = out.get(key) || { key, count: 0, sales: 0, purchases: 0, moneyIn: 0, moneyOut: 0 };
+    r.count++; r.moneyIn += e.moneyIn; r.moneyOut += e.moneyOut;
+    if (e.kind === 'sale') r.sales += e.amount;
+    if (e.kind === 'sale_return') r.sales -= e.amount;
+    if (e.kind === 'purchase') r.purchases += e.amount;
+    if (e.kind === 'purchase_return') r.purchases -= e.amount;
+    out.set(key, r);
+  }
+  return [...out.values()].sort((a, b) => by === 'day' || by === 'month' ? a.key.localeCompare(b.key) : b.sales + b.purchases - a.sales - a.purchases);
+}
+
+/** The balance of cash, every named account, and any card or wallet money with no named account. */
+export function accountBalances(data: BooksData, accounts: PayAccount[], today: string, openingCash = 0, openingBank = 0) {
+  const named = accounts.map(a => ({ key: `acc:${a.id}` as const, name: `${a.provider} · ${a.title}`, type: a.type, balance: moneyBook(data, `acc:${a.id}`, today, today, a.opening || 0).closing, active: a.active }));
+  const all = allEntries(data);
+  const loose = (m: Method) => all.filter(e => e.method === m && !e.accountId).reduce((s, e) => s + e.moneyIn - e.moneyOut, 0);
+  return { cash: moneyBook(data, 'cash', today, today, openingCash).closing, card: loose('bank') + openingBank, wallet: loose('wallet'), named };
 }

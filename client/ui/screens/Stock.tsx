@@ -7,6 +7,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useStore, useLive } from '../store.tsx';
 import { Icon, Modal, Empty, Toggle, SupervisorPrompt, useAsync, PhotoPicker, confirmAsk } from '../components.tsx';
 import { money } from '../i18n.ts';
+import type { PayAccount } from '../../../shared/types.ts';
 import { whatsappLink } from '../../../shared/reports.ts';
 import { billing } from '../../../shared/region.ts';
 import { can } from '../../../shared/permissions.ts';
@@ -488,13 +489,15 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
   }, [purchases.length], [] as Medicine[]);
   const meds = useLive(() => ctx.db.medicines.filter(m => !m.deleted).toArray(), [], [] as Medicine[]);
   const [amt, setAmt] = useState('');
-  const [payBy, setPayBy] = useState<'cash' | 'bank'>('cash');
+  const [payBy, setPayBy] = useState('cash');
+  const payAccounts = useLive(async () => (await ctx.db.shop.get('shop'))?.payAccounts?.filter(a => a.active) || [], [], [] as PayAccount[]);
   const [newRx, setNewRx] = useState({ medicineId: '', everyDays: '30', qty: '30' });
   const canPay = can(user, kind === 'suppliers' ? 'suppliers.payment' : 'patients.payment');
   const pay = useAsync(async () => {
     const v = rs(amt);
     if (!(v > 0)) throw new Error('Enter an amount above 0');
-    await recordPayment(ctx, pType, party.id, v, kind === 'suppliers' ? 'Paid to supplier' : 'Received from customer', payBy);
+    const chosen = payAccounts.find(x => `acc:${x.id}` === payBy);
+    await recordPayment(ctx, pType, party.id, v, kind === 'suppliers' ? 'Paid to supplier' : 'Received from customer', chosen ? chosen.type : payBy as 'cash' | 'bank', chosen ? { id: chosen.id, name: `${chosen.provider} · ${chosen.title}` } : null);
     setAmt(''); toast('ok', 'Payment saved');
   });
   const tabs: [string, string][] = kind === 'suppliers'
@@ -511,7 +514,7 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
         </div>
         <div className="card row"><div className="col" style={{ gap: 0 }}><span className="small muted">{kind === 'suppliers' ? 'We owe this supplier' : 'Credit — customer owes'}</span><span className="big num">{money(bal, lang as never)}</span></div><span className="spacer" />
           {canPay && <form className="row" onSubmit={e => { e.preventDefault(); void pay.run(); }}><input className="input num" style={{ width: 130 }} inputMode="decimal" placeholder="Rs" value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} />
-            <select className="input" style={{ width: 130 }} aria-label="Payment" value={payBy} onChange={e => setPayBy(e.target.value as 'cash' | 'bank')}><option value="cash">Cash</option><option value="bank">Card / bank</option></select>
+            <select className="input" style={{ width: 130 }} aria-label="Payment" value={payBy} onChange={e => setPayBy(e.target.value)}><option value="cash">Cash</option><option value="bank">Card / bank</option>{payAccounts.map(a => <option key={a.id} value={`acc:${a.id}`}>{`${a.provider} · ${a.title}`}</option>)}</select>
             <button className="btn primary" disabled={!amt || pay.busy}>{kind === 'suppliers' ? 'Pay' : 'Receive payment'}</button>{pay.err && <span className="err">{pay.err}</span>}</form>}</div>
         <Tabs value={tab} onChange={setTab} tabs={tabs} />
         {tab === 'purchases' && (purchases.length === 0 ? <Empty icon="truck" text="No purchases from this supplier yet" /> : <div className="table-wrap"><table className="t"><thead><tr><th>#</th><th>Date</th><th>{t('total')}</th><th>Status</th></tr></thead><tbody>

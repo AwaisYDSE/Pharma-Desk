@@ -13,12 +13,12 @@ import { summarize, presetRange, EXPENSE_CATEGORIES, type Group } from '../../..
 import { billing } from '../../../shared/region.ts';
 import { Books } from './Books.tsx';
 import { saveExpense, deleteExpense } from '../../core/inventory.ts';
-import type { Expense } from '../../../shared/types.ts';
+import type { Expense, PayAccount } from '../../../shared/types.ts';
 
 /** The Accounts module: overview plus the books. */
 export function Accounts() {
-  const [tab, setTab] = useState<'overview' | 'statement' | 'cash' | 'parties' | 'position'>('overview');
-  const tabs: [typeof tab, string][] = [['overview', 'Overview'], ['statement', 'Statements'], ['cash', 'Cash book'], ['parties', 'Who owes what'], ['position', 'Business position']];
+  const [tab, setTab] = useState<'overview' | 'statement' | 'cash' | 'money' | 'parties' | 'position'>('overview');
+  const tabs: [typeof tab, string][] = [['overview', 'Overview'], ['statement', 'Statements'], ['cash', 'Cash book'], ['money', 'Money accounts'], ['parties', 'Who owes what'], ['position', 'Business position']];
   return (
     <>
       <div className="books-tabs"><div className="tabs" role="tablist">{tabs.map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div></div>
@@ -133,8 +133,13 @@ function Row({ l, v, strong, sub, color }: { l: string; v: number; strong?: bool
   return <div className={`money-row${sub ? ' sub' : ''}${strong ? ' strong' : ''}`}><span>{l.trim()}</span><span className="num" style={{ color }}>{money(v, lang)}</span></div>;
 }
 
+const expensePay = (v: string, list?: PayAccount[]) => {
+  const a = v.startsWith('acc:') ? list?.find(x => x.id === v.slice(4)) : undefined;
+  return a ? { payMethod: a.type as Expense['payMethod'], accountId: a.id, accountName: `${a.provider} · ${a.title}` } : { payMethod: v as Expense['payMethod'], accountId: null, accountName: null };
+};
+
 function ExpenseForm({ e, onClose, onSaved }: { e: Partial<Expense>; onClose: () => void; onSaved: () => void }) {
-  const { ctx, t, user } = useStore();
+  const { ctx, t, user, shop } = useStore();
   const [f, setF] = useState({ date: e.date || isoDate(), category: e.category || 'Other', amount: e.amount ? String(e.amount / 100) : '', payMethod: e.payMethod || 'cash', paidTo: e.paidTo || '', note: e.note || '' });
   const a = useAsync(async () => {
     await saveExpense(ctx, { ...(e.id ? e : {}), date: f.date, category: f.category, amount: toPaisa(f.amount || 0), payMethod: f.payMethod as Expense['payMethod'], paidTo: f.paidTo.trim(), note: f.note.trim() } as never);
@@ -147,7 +152,7 @@ function ExpenseForm({ e, onClose, onSaved }: { e: Partial<Expense>; onClose: ()
           <label className="field">Date<input className="input" type="date" required value={f.date} max={isoDate()} onChange={ev => setF({ ...f, date: ev.target.value })} /></label>
           <label className="field">Amount<input className="input num" required autoFocus inputMode="decimal" placeholder="0.00" value={f.amount} onChange={ev => setF({ ...f, amount: ev.target.value.replace(/[^\d.]/g, '') })} /></label>
           <label className="field">Category<input className="input" list="exp-cats" maxLength={40} value={f.category} onChange={ev => setF({ ...f, category: ev.target.value })} /><datalist id="exp-cats">{EXPENSE_CATEGORIES.map(c => <option key={c} value={c} />)}</datalist></label>
-          <label className="field">Paid by<select className="input" value={f.payMethod} onChange={ev => setF({ ...f, payMethod: ev.target.value as Expense['payMethod'] })}><option value="cash">Cash</option><option value="bank">Bank</option><option value="card">Card</option><option value="wallet">JazzCash / Easypaisa</option></select></label>
+          <label className="field">Paid by<select className="input" value={f.payMethod} onChange={ev => setF({ ...f, payMethod: ev.target.value as Expense['payMethod'] })}><option value="cash">Cash</option>{(shop?.payAccounts || []).map(a => <option key={a.id} value={`acc:${a.id}`}>{`${a.provider} · ${a.title}`}</option>)}<option value="bank">Bank</option><option value="card">Card</option><option value="wallet">JazzCash / Easypaisa</option></select></label>
           <label className="field" style={{ gridColumn: '1 / -1' }}>Paid to<input className="input" maxLength={80} value={f.paidTo} onChange={ev => setF({ ...f, paidTo: ev.target.value })} /></label>
           <label className="field" style={{ gridColumn: '1 / -1' }}>Note<input className="input" maxLength={200} value={f.note} onChange={ev => setF({ ...f, note: ev.target.value })} /></label>
         </div>

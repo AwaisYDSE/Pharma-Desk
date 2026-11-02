@@ -18,7 +18,7 @@ export const SQL_TABLE: Record<SyncTable, string> = {
   medicines: 'medicines', batches: 'batches', suppliers: 'suppliers', patients: 'patients',
   prescriptions: 'prescriptions', invoices: 'invoices', invoiceItems: 'invoice_items',
   purchases: 'purchases', purchaseItems: 'purchase_items', ledger: 'ledger', users: 'users', audit: 'audit', shop: 'shop',
-  expenses: 'expenses', refunds: 'refunds', closings: 'closings',
+  expenses: 'expenses', refunds: 'refunds', closings: 'closings', moneyMoves: 'money_moves',
 };
 
 /** Indexed columns pulled out of each record's JSON (generated columns). */
@@ -39,6 +39,7 @@ const INDEXED: Record<SyncTable, [string, string][]> = {
   expenses: [['date', '$.date'], ['category', '$.category']],
   refunds: [['invoice_id', '$.invoiceId'], ['date', '$.date']],
   closings: [['date', '$.date']],
+  moneyMoves: [['date', '$.date']],
 };
 
 export function openDb(file: string): DB {

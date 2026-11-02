@@ -5,9 +5,47 @@ import { useStore } from '../store.tsx';
 import { Icon, Toggle, useAsync } from '../components.tsx';
 import { saveRecord } from '../../core/inventory.ts';
 import { can } from '../../../shared/permissions.ts';
-import { REGIONS, regionOf, billing, formatBillNumber, type BillingOptions } from '../../../shared/region.ts';
+import { REGIONS, regionOf, billing, formatBillNumber, providersFor, type BillingOptions } from '../../../shared/region.ts';
+import { uuid } from '../../../shared/util.ts';
+import { toPaisa } from '../../../shared/money.ts';
+import type { PayAccount } from '../../../shared/types.ts';
 
 /** Bill number style, what prints on bills, region / currency / tax name, branch. Synced to every device. */
+/** The owner's bank and wallet accounts. Only accounts added here appear at checkout. */
+export function PayAccountsCard() {
+  const { ctx, shop, user, toast } = useStore();
+  const allowed = can(user, 'settings.shop');
+  const list = shop?.payAccounts || [];
+  const prov = providersFor(billing(shop?.billing).region);
+  const empty = { type: 'wallet' as 'bank' | 'wallet', provider: '', other: '', title: '', number: '', opening: '' };
+  const [f, setF] = useState(empty);
+  const write = (payAccounts: PayAccount[]) => saveRecord(ctx, 'shop', { ...(shop || {}), id: 'shop', payAccounts } as never);
+  const options = f.type === 'bank' ? prov.banks : prov.wallets;
+  const name = f.provider === 'other' ? f.other.trim() : f.provider;
+  const add = useAsync(async () => {
+    if (!name || !f.title.trim() || !f.number.trim()) throw new Error('Fill in the name, account title and number');
+    await write([...list, { id: uuid(), type: f.type, provider: name, title: f.title.trim(), number: f.number.trim(), active: true, opening: f.opening ? toPaisa(f.opening) : 0 }]);
+    setF(empty); toast('ok', 'Saved');
+  });
+  return (
+    <section className="card col"><h2><Icon name="wallet" /> Banks and mobile wallets</h2>
+      <span className="small muted">Add the accounts you take money in. Only these appear at checkout and in Accounts.</span>
+      {list.map(a => <div className="row" key={a.id} style={{ gap: 8 }}><span className={`badge ${a.active ? 'ok' : ''}`}>{a.type === 'bank' ? 'Bank' : 'Mobile wallet'}</span><strong>{a.provider}</strong><span>{a.title}</span><span className="num" dir="ltr">{a.number}</span><span className="spacer" />
+        {allowed && <Toggle on={a.active} label="Show at checkout" onChange={v => void write(list.map(x => x.id === a.id ? { ...x, active: v } : x))} />}</div>)}
+      {allowed && <div className="row" style={{ gap: 10 }}>
+        <label className="field" style={{ width: 130 }}>Type<select className="input" value={f.type} onChange={e => setF({ ...f, type: e.target.value as 'bank' | 'wallet', provider: '' })}><option value="wallet">Mobile wallet</option><option value="bank">Bank</option></select></label>
+        <label className="field" style={{ minWidth: 170 }}>Name<select className="input" value={f.provider} onChange={e => setF({ ...f, provider: e.target.value })}><option value="">Choose</option>{options.map(o => <option key={o} value={o}>{o}</option>)}<option value="other">Other</option></select></label>
+        {f.provider === 'other' && <label className="field" style={{ minWidth: 150 }}>Other<input className="input" value={f.other} onChange={e => setF({ ...f, other: e.target.value })} /></label>}
+        <label className="field" style={{ minWidth: 160 }}>Account title<input className="input" value={f.title} onChange={e => setF({ ...f, title: e.target.value })} /></label>
+        <label className="field" style={{ minWidth: 180 }}>Account or mobile number<input className="input" dir="ltr" value={f.number} onChange={e => setF({ ...f, number: e.target.value })} /></label>
+        <label className="field" style={{ width: 130 }}>Starting balance (optional)<input className="input num" inputMode="decimal" value={f.opening} onChange={e => setF({ ...f, opening: e.target.value })} /></label>
+        <button type="button" className="btn primary" style={{ alignSelf: 'flex-end' }} disabled={add.busy} onClick={() => void add.run()}>Add</button>
+      </div>}
+      {add.err && <span className="err">{add.err}</span>}
+    </section>
+  );
+}
+
 export function BillsCard() {
   const { ctx, shop, user, toast, t } = useStore();
   const [b, setB] = useState<Required<BillingOptions>>(() => billing(shop?.billing) as Required<BillingOptions>);
