@@ -251,11 +251,16 @@ export async function voidInvoice(ctx: Ctx, invoiceId: string, reason: string, s
   const updated = { ...inv, status: 'void' as const, note: `VOID: ${reason} (by ${approver.name})`, hlc: stamp(ctx) };
   const deltas: Delta[] = items.map(i => ({ batchId: i.batchId, medicineId: i.medicineId, delta: i.qty }));
   const audit = { id: uuid(), at: new Date().toISOString(), userId: ctx.user!.id, userName: ctx.user!.name, deviceId: ctx.deviceId, action: 'invoice.void', entity: 'invoices', entityId: invoiceId, details: { number: inv.number, total: inv.total, reason, approvedBy: approver.name }, hlc: stamp(ctx) };
-  await db.transaction('rw', [db.invoices, db.batches, db.outbox, db.audit], async () => {
+  // A credit bill that is cancelled no longer owed: take what is still on it off the customer's account.
+  const wasCredit = (inv.baseStatus || inv.status) === 'credit' && inv.patientId;
+  const stillOwed = wasCredit ? Math.max(0, inv.total - (inv.refunded || 0)) : 0;
+  const reversal = stillOwed > 0 ? { id: uuid(), partyType: 'patient' as const, partyId: inv.patientId!, date: isoDate(), debit: 0, credit: stillOwed, ref: inv.number, note: 'Bill voided', hlc: stamp(ctx) } : null;
+  await db.transaction('rw', [db.invoices, db.batches, db.outbox, db.audit, db.ledger], async () => {
+    if (reversal) await db.ledger.put(reversal as never);
     await db.invoices.put(updated);
     await db.audit.put(audit as never);
     for (const d of deltas) { const b = await db.batches.get(d.batchId); if (b) await db.batches.update(d.batchId, { qty: b.qty + d.delta }); }
-    await enqueue(ctx, { kind: 'void', strict: false, rows: [{ tbl: 'invoices', row: updated }, { tbl: 'audit', row: audit as never }], deltas, userId: approver.id } as never); // checked on the server against the approver
+    await enqueue(ctx, { kind: 'void', strict: false, rows: [{ tbl: 'invoices', row: updated }, ...(reversal ? [{ tbl: 'ledger', row: reversal as never }] : []), { tbl: 'audit', row: audit as never }], deltas, userId: approver.id } as never); // checked on the server against the approver
   });
   emit(ctx, 'stock-changed');
   return updated;

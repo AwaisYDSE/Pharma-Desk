@@ -115,7 +115,7 @@ const es: Dict = {
   suppliers: 'Proveedores', patients: 'Pacientes', alerts: 'Alertas', reports: 'Informes', accounts: 'Cuentas', ai: 'Asistente IA', users: 'Usuarios y acceso', settings: 'Ajustes',
   logout: 'Cerrar sesión', login: 'Entrar', username: 'Usuario', pin: 'PIN', search: 'Buscar medicamento o escanear código', expiry: 'Caducidad', batch: 'Lote',
   qty: 'Cant.', price: 'Precio', amount: 'Importe', subtotal: 'Subtotal', discount: 'Descuento', gst: 'IVA (GST)', total: 'Total',
-  checkout: 'Cobrar e imprimir', cash: 'Efectivo', card: 'Tarjeta / JazzCash', credit: 'Crédito (crédito)', received: 'Recibido', change: 'Cambio', patient: 'Paciente',
+  checkout: 'Cobrar e imprimir', cash: 'Efectivo', card: 'Tarjeta / JazzCash', credit: 'Crédito', received: 'Recibido', change: 'Cambio', patient: 'Paciente',
   emptyBill: 'Busque o escanee un medicamento para empezar la factura', stock: 'Existencias', inStock: 'en existencia', online: 'Conectado al servidor',
   offline: 'Servidor desconectado — trabajando en este dispositivo', syncing: 'Sincronizando…', pending: 'pendiente de sincronizar', save: 'Guardar', cancel: 'Cancelar',
   add: 'Añadir', delete: 'Eliminar', edit: 'Editar', close: 'Cerrar', name: 'Nombre', generic: 'Genérico', strength: 'Concentración', company: 'Laboratorio',

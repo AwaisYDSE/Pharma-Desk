@@ -11,12 +11,25 @@ import { toPaisa } from '../../../shared/money.ts';
 import { isoDate } from '../../../shared/util.ts';
 import { summarize, presetRange, EXPENSE_CATEGORIES, type Group } from '../../../shared/accounting.ts';
 import { billing } from '../../../shared/region.ts';
+import { Books } from './Books.tsx';
 import { saveExpense, deleteExpense } from '../../core/inventory.ts';
 import type { Expense } from '../../../shared/types.ts';
 
+/** The Accounts module: overview plus the books. */
+export function Accounts() {
+  const [tab, setTab] = useState<'overview' | 'statement' | 'cash' | 'parties' | 'position'>('overview');
+  const tabs: [typeof tab, string][] = [['overview', 'Overview'], ['statement', 'Statements'], ['cash', 'Cash book'], ['parties', 'Who owes what'], ['position', 'Business position']];
+  return (
+    <>
+      <div className="tabs books-tabs" role="tablist">{tabs.map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+      {tab === 'overview' ? <Overview /> : <Books view={tab} />}
+    </>
+  );
+}
+
 type Preset = 'today' | 'week' | 'month' | 'lastMonth' | 'year' | 'custom';
 
-export function Accounts() {
+function Overview() {
   const { ctx, t, lang, user, toast, shop } = useStore();
   const today = isoDate();
   const [preset, setPreset] = useState<Preset>('month');

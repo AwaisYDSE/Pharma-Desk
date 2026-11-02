@@ -34,7 +34,7 @@ function checkShape(op: Op) {
       if (l.partyType !== 'patient' || l.credit) refuse('A sale can only add to what the customer owes');
     }
   }
-  if (op.kind === 'void' && !allowed(['invoices', 'audit'])) refuse('A void can only change the bill');
+  if (op.kind === 'void' && !allowed(['invoices', 'ledger', 'audit'])) refuse('A void can only change the bill');
   if (op.kind === 'refund' && !allowed(['refunds', 'invoices', 'ledger', 'audit'])) refuse('A return can only change the bill');
   if (op.kind === 'stock' && !allowed(tables.includes('purchases') ? ['purchases', 'purchaseItems', 'medicines', 'batches', 'ledger', 'audit'] : ['audit'])) refuse('A stock change cannot carry other data');
 }
