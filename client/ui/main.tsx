@@ -6,6 +6,7 @@ import { AppProvider, useStore } from './store.tsx';
 import { Toasts , ConfirmHost} from './components.tsx';
 import { Accounts } from './screens/Accounts.tsx';
 import { LockScreen } from './screens/Lock.tsx';
+import { Branches } from './screens/Branches.tsx';
 import { KeyboardAssist, TipSlider, UpdateBlock, UpdateNotice, useUpdate } from './Assist.tsx';
 import { OwnerSetup, PairScreen, LoginScreen, LicenseGate, supportLogin, type LicenseInfo } from './screens/Auth.tsx';
 supportLogin.capture();
@@ -16,7 +17,7 @@ import { Inventory, Purchases, Parties, Invoices, Alerts } from './screens/Stock
 import { Users } from './screens/Users.tsx';
 import { Settings } from './screens/Settings.tsx';
 import { About, Splash } from './screens/About.tsx';
-import { can, NAV_MODULES as MODULES } from '../../shared/permissions.ts';
+import { can, moduleOn, NAV_MODULES as MODULES } from '../../shared/permissions.ts';
 import './styles.css';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err: Error | null }> {
@@ -71,10 +72,10 @@ function App() {
   if (!user) return <LoginScreen />;
 
   const first = can(user, 'pos') ? 'pos' : MODULES.find(m => can(user, m.key))?.key || 'settings';
-  const r = route === 'more' || route === 'about' || (MODULES.some(m => m.key === route) && can(user, route)) ? route : first;
+  const r = route === 'more' || route === 'about' || (MODULES.some(m => m.key === route) && can(user, route) && moduleOn(route, shop)) ? route : first;
   const screens: Record<string, React.ReactNode> = {
     dashboard: <Dashboard />, pos: <Pos />, invoices: <Invoices />, inventory: <Inventory />, purchases: <Purchases />,
-    suppliers: <Parties kind="suppliers" />, patients: <Parties kind="patients" />, alerts: <Alerts />, reports: <Reports />, accounts: <Accounts />,
+    suppliers: <Parties kind="suppliers" />, patients: <Parties kind="patients" />, alerts: <Alerts />, reports: <Reports />, accounts: <Accounts />, branches: <Branches />,
     users: <Users />, settings: <Settings />, more: <MoreMenu go={go} />, about: <About />,
   };
   return <><Shell route={r} go={go}><ErrorBoundary key={r + navKey}>{screens[r]}</ErrorBoundary></Shell><KeyboardAssist go={go} /><TipSlider /><UpdateNotice u={update} /></>;

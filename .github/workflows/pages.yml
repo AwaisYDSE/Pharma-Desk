@@ -2,10 +2,10 @@
 # Windows and Mac machine, and only then publishes https://awaisydse.github.io/Pharma-Desk/
 name: Build, test and publish
 on:
-  push: { branches: [main] }
+  push: { branches: [main, secure-and-branches] }
   workflow_dispatch:
 permissions: { contents: read, pages: write, id-token: write }
-concurrency: { group: pages, cancel-in-progress: true }
+concurrency: { group: 'pages-${{ github.ref }}', cancel-in-progress: true }
 
 jobs:
   build:
@@ -110,7 +110,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: mac, path: out/PharmaDesk-Mac.pkg }
 
+  # Only main goes live. Other branches stop after building and test-installing, and their installers can be downloaded from the run.
   deploy:
+    if: github.ref == 'refs/heads/main'
     needs: [build, windows, mac]
     runs-on: ubuntu-latest
     environment: { name: github-pages, url: '${{ steps.d.outputs.page_url }}' }

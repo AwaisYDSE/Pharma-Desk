@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useStore } from './store.tsx';
 import { Icon, Modal } from './components.tsx';
-import { can, NAV_MODULES } from '../../shared/permissions.ts';
+import { can, moduleOn, NAV_MODULES } from '../../shared/permissions.ts';
 import { APP_VERSION } from '../../shared/version.ts';
 import { VENDOR } from '../../shared/vendor.ts';
 import { updateNeed, type LatestRelease, type UpdateNeed } from '../../shared/update.ts';
@@ -59,10 +59,10 @@ const KEYS: [string, string][] = [
 ];
 
 export function KeyboardAssist({ go }: { go: (r: string) => void }) {
-  const { user, t } = useStore();
+  const { user, t, shop } = useStore();
   const [help, setHelp] = useState(false), [jump, setJump] = useState(false), [q, setQ] = useState(''), [sel, setSel] = useState(0);
   const input = useRef<HTMLInputElement>(null);
-  const items = useMemo(() => NAV_MODULES.filter(m => can(user, m.key)).map(m => ({ key: m.key, label: t(m.label) })), [user, t]);
+  const items = useMemo(() => NAV_MODULES.filter(m => can(user, m.key) && moduleOn(m.key, shop)).map(m => ({ key: m.key, label: t(m.label) })), [user, t, shop]);
   const hits = items.filter(m => m.label.toLowerCase().includes(q.trim().toLowerCase()));
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -82,7 +82,7 @@ export function KeyboardAssist({ go }: { go: (r: string) => void }) {
       <AnimatePresence>
         {jump && <motion.div className="jump-back" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setJump(false)}>
           <motion.div className="jump" role="dialog" aria-label="Jump to" initial={{ y: -24, scale: 0.97 }} animate={{ y: 0, scale: 1 }} exit={{ y: -24 }} onClick={e => e.stopPropagation()}>
-            <input ref={input} className="input" placeholder="Type a screen name…" value={q} onChange={e => { setQ(e.target.value); setSel(0); }} onKeyDown={e => {
+            <input ref={input} autoFocus className="input" placeholder="Type a screen name…" value={q} onChange={e => { setQ(e.target.value); setSel(0); }} onKeyDown={e => {
               if (e.key === 'Escape') setJump(false);
               if (e.key === 'ArrowDown') { e.preventDefault(); setSel(s => Math.min(s + 1, hits.length - 1)); }
               if (e.key === 'ArrowUp') { e.preventDefault(); setSel(s => Math.max(s - 1, 0)); }

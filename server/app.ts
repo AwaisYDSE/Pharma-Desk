@@ -21,6 +21,7 @@ import { licenseState, activateLicense, installId } from './license.ts';
 import { pcCode, resetOwnerPin } from './owner-reset.ts';
 import { setSupportAccess, supportOn, checkIn } from './vendor-link.ts';
 import * as notify from './notify.ts';
+import * as branches from './branches.ts';
 import { makeBackup, restoreBackup } from './backup.ts';
 import { installUpdate } from './updater.ts';
 import { APP_VERSION } from '../shared/version.ts';
@@ -49,11 +50,12 @@ export function setupShop(db: DB, name: string, choice: 'builtin' | 'own', owner
   return added;
 }
 
-export interface AppOptions { endpoints?: () => Endpoints; staticDir?: string; aiFetch?: typeof fetch; notifyFetch?: typeof fetch; fbrFetch?: typeof fetch; updateFetch?: typeof fetch; updateOpen?: (file: string, platform: string) => void; version?: string; dataDir?: string }
+export interface AppOptions { endpoints?: () => Endpoints; staticDir?: string; aiFetch?: typeof fetch; notifyFetch?: typeof fetch; fbrFetch?: typeof fetch; updateFetch?: typeof fetch; branchFetch?: typeof fetch; updateOpen?: (file: string, platform: string) => void; version?: string; dataDir?: string }
 
 export function createApp(db: DB, opts: AppOptions = {}) {
   ensureIdentity(db);
   sup.openSessionTable(db);
+  branches.openBranchTables(db);
   const app = express();
   notify.openNotifyTable(db);
   let reorderTimer: ReturnType<typeof setTimeout> | null = null;
@@ -171,6 +173,21 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     sup.logEvent(db, 'app.update', { to: r.version });
     return r;
   }));
+  /* ---------- branches: connecting is done on the server PC only ---------- */
+  app.get('/local/branch', localOnly, wrap(async () => {
+    const id = getIdentity(db)!;
+    const endpoints = opts.endpoints?.() || { lan: [], tailscale: null, cloudflare: null };
+    return { ...branches.branchStatus(db), code: 'pharmadesk:' + Buffer.from(JSON.stringify(pairingPayload(id.serverId, id.name, endpoints))).toString('base64url'), pin: id.pin };
+  }));
+  app.post('/local/branch/head', localOnly, wrap(req => { branches.makeHead(db, !!req.body?.share); sup.logEvent(db, 'branch.head', { share: !!req.body?.share }); return branches.branchStatus(db); }));
+  app.post('/local/branch/join', localOnly, wrap(async req => {
+    const r = await branches.joinHead(db, { code: String(req.body?.code || ''), pin: String(req.body?.pin || ''), branchName: req.body?.name, branchCode: req.body?.branchCode }, opts.branchFetch);
+    sup.logEvent(db, 'branch.joined', r);
+    void branches.syncWithHead(db, opts.branchFetch).catch(() => {});
+    return branches.branchStatus(db);
+  }));
+  app.post('/local/branch/leave', localOnly, wrap(() => { branches.leaveHead(db); sup.logEvent(db, 'branch.left', {}); return branches.branchStatus(db); }));
+  app.post('/local/branch/sync', localOnly, wrap(async () => { await branches.syncWithHead(db, opts.branchFetch); return branches.branchStatus(db); }));
   app.post('/local/checkin-now', localOnly, wrap(async () => { await checkInNow(); return { license: await licenseState(db) }; }));
   /** Forgot the owner PIN — only on the server PC itself. */
   app.get('/local/owner-reset', localOnly, wrap(() => ({ pcCode: pcCode(db), vendor: VENDOR.name, vendorReset: !!VENDOR.publicKey })));
@@ -274,6 +291,32 @@ export function createApp(db: DB, opts: AppOptions = {}) {
       return { changes: shop ? [{ tbl: 'shop', id: shop.id, data: JSON.parse(shop.data), hlc: shop.hlc, rev: shop.rev }] : [], rev: since, more: false };
     }
     return pullChanges(db, since, Math.min(5000, Number(req.query.limit || 2000)));
+  }));
+
+  /* ---------- branches ---------- */
+  const fromBranch = (req: Req) => { if ((db.prepare(`SELECT platform FROM paired_devices WHERE id = ?`).get(req.device!.did) as { platform?: string } | undefined)?.platform !== 'branch') throw new AppError('FORBIDDEN', 'Only a branch server can do this'); };
+  app.post('/api/branch/join', wrap(req => { fromBranch(req); return branches.joinAtHead(db, req.device!.did, req.body?.name, req.body?.code); }));
+  app.post('/api/branch/sync', wrap(req => { fromBranch(req); return branches.syncAtHead(db, req.device!.did, req.body || {}); }));
+  app.get('/api/branch/status', session('branches'), wrap(() => branches.branchStatus(db)));
+  app.get('/api/branch/stock', session(), wrap(() => ({ branches: branches.stockAll(db) })));
+  app.get('/api/branch/report', session('branches'), wrap(req => {
+    const day = /^\d{4}-\d{2}-\d{2}$/, from = String(req.query.from || ''), to = String(req.query.to || '');
+    if (!day.test(from) || !day.test(to) || from > to) throw new AppError('INVALID', 'Choose a valid date range');
+    if (branches.branchRole(db) !== 'head') throw new AppError('NOT_HEAD', 'The report for all branches is on the head office');
+    return branches.branchReport(db, from, to);
+  }));
+  app.get('/api/branch/transfers', session('branches'), wrap(() => ({ transfers: branches.allTransfers(db), me: branches.myBranchId(db) })));
+  app.post('/api/branch/transfers', session('branches.transfer'), wrap(req => {
+    requireUnlocked();
+    const t = branches.sendTransfer(db, req.user!, req.body || {});
+    void branches.syncWithHead(db, opts.branchFetch).catch(() => {});
+    return t;
+  }));
+  app.post('/api/branch/transfers/:id/receive', session('branches.receive'), wrap(req => {
+    requireUnlocked();
+    const t = branches.receiveTransfer(db, req.user!, String(req.params.id));
+    void branches.syncWithHead(db, opts.branchFetch).catch(() => {});
+    return t;
   }));
 
   /* ---------- owner supervision ---------- */

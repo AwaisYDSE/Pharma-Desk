@@ -136,7 +136,7 @@ export function summarize(data: AccountsData, from: string, to: string, group: G
   }
 
   for (const l of data.ledger) {
-    if (l.deleted || !inRange(l.date) || l.ref !== 'PAYMENT') continue;
+    if (l.deleted || !inRange(l.date) || l.ref !== 'PAYMENT' || (l as { foreign?: boolean }).foreign) continue; // money taken at another branch is that branch's cash
     const p = P(l.date);
     if (l.partyType === 'patient') { p.creditCollected += l.credit; p.cashIn += l.credit; }
     else { p.supplierPaid += l.debit; p.cashOut += l.debit; }

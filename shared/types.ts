@@ -79,6 +79,8 @@ export interface Refund extends Synced {
 }
 export interface LedgerEntry extends Synced {
   partyType: 'supplier' | 'patient'; partyId: string; date: string; debit: number; credit: number; ref: string; note?: string;
+  /** Made at another branch (customers shared): counts in the balance, not in this branch's cash. */
+  foreign?: boolean; originBranch?: string;
 }
 export interface User extends Synced {
   username: string; name: string; email?: string; role: string; perms: string[]; active: boolean;
@@ -103,6 +105,8 @@ export interface Shop extends Synced {
   billing?: import('./region.ts').BillingOptions;
   /** Branch of a pharmacy chain (optional). */
   branchName?: string; branchCode?: string;
+  /** The owner's choice: this pharmacy has several branches. Off = the Branches screen does not appear. */
+  branchesOn?: boolean;
   /** FBR reporting is on (Pakistan only) — devices wait briefly for the FBR number before printing. */
   fbrOn?: boolean;
 }

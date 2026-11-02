@@ -12,6 +12,7 @@ import { startVendorLink } from './vendor-link.ts';
 import { processQueue } from './notify.ts';
 import { runReorder } from './automation.ts';
 import { retryPending } from './fbr.ts';
+import { syncWithHead } from './branches.ts';
 import { lanUrls, startTailscale, CloudflareTunnel, publishBeacon, pairingPayload, pairingQr, type Endpoints } from './tunnel.ts';
 
 const PORT = Number(process.env.PORT || 4317);
@@ -104,6 +105,8 @@ setTimeout(safe('Stock check', () => runReorder(db)), 120_000).unref();
 setInterval(safe('Stock check', () => runReorder(db)), 15 * 60_000).unref();
 let fbrBusy = false;
 setInterval(safe('FBR reporting', async () => { if (fbrBusy) return; fbrBusy = true; try { await retryPending(db); } finally { fbrBusy = false; } }), 2 * 60_000).unref();
+let branchBusy = false;
+setInterval(safe('Branch link', async () => { if (branchBusy) return; branchBusy = true; try { await syncWithHead(db); } catch { /* the link is down: this branch keeps working and catches up */ } finally { branchBusy = false; } }), 60_000).unref();
 const snap = () => { try { log(`Backup saved: ${path.basename(snapshot(db, BACKUPS))}`); } catch (e) { log(`Backup failed: ${(e as Error).message}`); } };
 setTimeout(snap, 60_000);
 const snapTimer = setInterval(snap, 6 * 3600_000);

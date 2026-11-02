@@ -30,8 +30,8 @@ export const DEFAULT_BILLING: Required<Omit<BillingOptions, 'headerNote'>> & { h
 export const billing = (b?: BillingOptions | null) => ({ ...DEFAULT_BILLING, ...(b || {}) });
 
 /** Formats bill number n with the owner's style. */
-export function formatBillNumber(b: BillingOptions | null | undefined, n: number, deviceCode = ''): string {
+export function formatBillNumber(b: BillingOptions | null | undefined, n: number, deviceCode = '', branchCode = ''): string {
   const o = billing(b);
   const num = o.invoiceDigits > 0 ? String(n).padStart(o.invoiceDigits, '0') : String(n);
-  return `${o.invoicePrefix || ''}${o.deviceCode && deviceCode ? deviceCode + '-' : ''}${num}`;
+  return `${o.invoicePrefix || ''}${branchCode ? branchCode + '-' : ''}${o.deviceCode && deviceCode ? deviceCode + '-' : ''}${num}`;
 }

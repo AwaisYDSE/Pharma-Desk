@@ -7,19 +7,19 @@ import { useStore } from '../store.tsx';
 import { Icon, UserAvatar, Modal, PhotoPicker } from '../components.tsx';
 import { Heart } from './About.tsx';
 import { setUserPhoto, resetPin } from '../../core/auth.ts';
-import { can, NAV_MODULES as MODULES, ROLE_PRESETS } from '../../../shared/permissions.ts';
+import { can, moduleOn, NAV_MODULES as MODULES, ROLE_PRESETS } from '../../../shared/permissions.ts';
 import { LANGS } from '../i18n.ts';
 
 const ICONS: Record<string, string> = {
   dashboard: 'grid', pos: 'cart', invoices: 'receipt', inventory: 'box', purchases: 'truck', suppliers: 'factory',
-  patients: 'users', alerts: 'bell', reports: 'chart', accounts: 'wallet', ai: 'spark', users: 'shield', settings: 'gear',
+  patients: 'users', alerts: 'bell', reports: 'chart', accounts: 'wallet', branches: 'server', ai: 'spark', users: 'shield', settings: 'gear',
 };
 
 export function Shell({ route, go, children }: { route: string; go: (r: string) => void; children: React.ReactNode }) {
   const { user, t, online, pending, alerts, lang, setLang, logout, ctx, settings, setSettings, shop } = useStore();
   const [collapsed, setCollapsed] = useState(false);
   const [profile, setProfile] = useState(false);
-  const allowed = MODULES.filter(m => can(user, m.key));
+  const allowed = MODULES.filter(m => can(user, m.key) && moduleOn(m.key, shop));
   const critical = alerts.filter(a => a.level !== 'info').length;
   const mobileTabs = ['pos', 'dashboard', 'inventory', 'alerts'].filter(k => can(user, k)).slice(0, 4);
 
@@ -94,10 +94,10 @@ export function Shell({ route, go, children }: { route: string; go: (r: string) 
 }
 
 export function MoreMenu({ go }: { go: (r: string) => void }) {
-  const { user, t } = useStore();
+  const { user, t, shop } = useStore();
   return (
     <div className="grid g-auto">
-      {MODULES.filter(m => can(user, m.key)).map(m => (
+      {MODULES.filter(m => can(user, m.key) && moduleOn(m.key, shop)).map(m => (
         <button type="button" key={m.key} className="card row" style={{ cursor: 'pointer', textAlign: 'start' }} onClick={() => go(m.key)}>
           <span className="badge acc" style={{ padding: 10, borderRadius: 12 }}><Icon name={ICONS[m.key]} size={20} /></span><strong>{t(m.key)}</strong>
         </button>

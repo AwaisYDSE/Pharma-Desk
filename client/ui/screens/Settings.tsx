@@ -65,6 +65,9 @@ export function Settings() {
         <BillsCard />
       </div>
       {user?.owner && <section className="card col" style={{ marginTop: 4 }}>
+        <label className="row"><Toggle on={!!shop?.branchesOn} label="This shop has more than one branch" onChange={v => void saveRecord(ctx, 'shop', { ...(shop || {}), id: 'shop', branchesOn: v } as never).catch(e => toast('bad', (e as Error).message))} /> <strong>This shop has more than one branch</strong> <span className="small muted">Off for a single shop. Switch on to connect several branches.</span></label>
+      </section>}
+      {user?.owner && <section className="card col" style={{ marginTop: 4 }}>
         <label className="row"><Toggle on={critical} onChange={setCritical} label="Critical settings" /> <strong>Critical settings</strong> <span className="small muted">— AI, email & SMS, automatic orders, FBR and developer support. Owner only.</span></label>
       </section>}
       {user?.owner && critical && <div className="settings-cols">

@@ -65,7 +65,7 @@ export function allEntries(data: BooksData): Entry[] {
     });
   }
   for (const l of data.ledger) {
-    if (l.deleted || l.ref !== 'PAYMENT') continue;
+    if (l.deleted || l.ref !== 'PAYMENT' || (l as { foreign?: boolean }).foreign) continue; // money taken at another branch is that branch's cash
     const sup = l.partyType === 'supplier';
     const amount = sup ? l.debit : l.credit;
     out.push({

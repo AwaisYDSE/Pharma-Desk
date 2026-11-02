@@ -122,7 +122,7 @@ export async function nextBillNumber(ctx: Ctx) {
   const key = 'seq:BILL';
   const n = Math.max((await getMeta<number>(ctx.db, key, 0)) + 1, Number(b.invoiceStart) || 1);
   await setMeta(ctx.db, key, n);
-  return formatBillNumber(b, n, ctx.deviceId.slice(0, 4).toUpperCase());
+  return formatBillNumber(b, n, ctx.deviceId.slice(0, 4).toUpperCase(), shop?.branchCode || '');
 }
 
 export async function nextNumber(ctx: Ctx, prefix: string) {

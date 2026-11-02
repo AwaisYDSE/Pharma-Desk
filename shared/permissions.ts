@@ -57,6 +57,10 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'accounts.edit', label: 'Modify expenses' },
     { key: 'accounts.delete', label: 'Delete expenses' },
   ] },
+  { key: 'branches', label: 'Branches', actions: [
+    { key: 'branches.transfer', label: 'Send stock to another branch' },
+    { key: 'branches.receive', label: 'Receive stock from another branch' },
+  ] },
   { key: 'reports', label: 'Reports', actions: [
     { key: 'reports.profit', label: 'See cost prices & profit' },
     { key: 'reports.export', label: 'Export reports (CSV)' },
@@ -79,6 +83,8 @@ export const PERMISSION_GROUPS: PermGroup[] = [
 export const MODULES = PERMISSION_GROUPS.map(g => ({ key: g.key, label: g.label }));
 /** Modules that get their own screen in the menu (AI lives inside Settings). */
 export const NAV_MODULES = MODULES.filter(m => m.key !== 'ai');
+/** Optional modules appear only when the owner switches them on. A single shop never sees Branches. */
+export const moduleOn = (key: string, shop?: { branchesOn?: boolean } | null) => key !== 'branches' || !!shop?.branchesOn;
 export const ACTIONS = PERMISSION_GROUPS.flatMap(g => g.actions);
 export const ALL_PERMS: string[] = PERMISSION_GROUPS.flatMap(g => [g.key, ...g.actions.map(a => a.key)]);
 
@@ -86,7 +92,7 @@ const pick = (...keys: string[]) => keys;
 export const ROLE_PRESETS: Record<string, { label: string; perms: string[] }> = {
   admin: { label: 'Admin (owner)', perms: ALL_PERMS },
   pharmacist: { label: 'Pharmacist / Supervisor', perms: pick(
-    'dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'ai',
+    'branches', 'branches.receive', 'dashboard', 'pos', 'invoices', 'inventory', 'purchases', 'suppliers', 'patients', 'alerts', 'reports', 'ai',
     'pos.discount', 'pos.price', 'pos.credit_sale', 'pos.override_fefo', 'pos.negative_stock',
     'invoices.view_all', 'invoices.reprint', 'invoices.void', 'invoices.refund', 'messages.send',
     'inventory.create', 'inventory.edit', 'inventory.add_stock', 'inventory.adjust',
