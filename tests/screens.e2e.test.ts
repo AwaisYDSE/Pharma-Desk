@@ -80,6 +80,26 @@ describe('New screens', () => {
     await page.getByRole('tab', { name: 'Cash book' }).waitFor({ timeout: 8000 });
   }, 30000);
 
+  it('accounts added by the owner appear at checkout, stock tools and money accounts open', async () => {
+    await go('pos');
+    await expect(page.locator('.paygrid + .row button').count()).resolves.toBe(0);
+    const shop = getRow<Shop>(db, 'shop', 'shop')!;
+    putRow(db, 'shop', { ...shop, payAccounts: [{ id: 'A', type: 'wallet', provider: 'JazzCash', title: 'Shop', number: '03001234567', active: true }] } as Shop, serverClock.tick());
+    await page.getByRole('button', { name: 'JazzCash', exact: true }).waitFor({ timeout: 15000 });
+    await page.getByRole('button', { name: 'JazzCash', exact: true }).click();
+    await page.getByText('03001234567').waitFor({ timeout: 3000 });
+    await shot('pos-wallet');
+    await go('accounts');
+    await clickTab('Money accounts');
+    await shot('money');
+    await go('stocktools');
+    for (const t of ['Supplier returns', 'Expiry loss', 'Dead stock', 'Profit per medicine', 'Stock count']) await clickTab(t);
+    await shot('tools');
+    await go('settings');
+    await page.getByText('Banks and mobile wallets').first().waitFor({ timeout: 5000 });
+    expect(errors).toEqual([]);
+  }, 40000);
+
   it('a locked plan shows only the banner and a box for a new key', async () => {
     const shop = getRow<Shop>(db, 'shop', 'shop')!;
     putRow(db, 'shop', { ...shop, planLock: { status: 'cancelled', message: 'This licence was cancelled.', vendor: 'Awais Amin' } } as Shop, serverClock.tick());

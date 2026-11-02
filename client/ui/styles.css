@@ -272,7 +272,7 @@ td.num, th.num, .num { white-space: nowrap; }
 .terms-list { margin: 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 10px; line-height: 1.55; }
 .terms-box { max-height: 240px; overflow: auto; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel2); font-size: 13px; }
 .terms-accept { display: flex; gap: 10px; align-items: flex-start; font-weight: 600; cursor: pointer; }
-.tip-slide { position: fixed; inset-inline-end: 18px; bottom: 18px; z-index: 800; width: min(340px, calc(100vw - 32px)); padding: 14px 16px; border-radius: 16px; color: #f8fafc; background: linear-gradient(135deg, #0f766e, #134e4a); box-shadow: 0 18px 50px rgba(4, 47, 46, .45); }
+.tip-slide { position: fixed; inset-inline-start: 262px; bottom: 18px; z-index: 800; width: min(340px, calc(100vw - 32px)); padding: 14px 16px; border-radius: 16px; color: #f8fafc; background: linear-gradient(135deg, #0f766e, #134e4a); box-shadow: 0 18px 50px rgba(4, 47, 46, .45); }
 .tip-slide p { margin: 8px 0 12px; line-height: 1.45; }
 .tip-slide .btn { color: #f8fafc; background: rgba(255, 255, 255, .14); border-color: rgba(255, 255, 255, .25); }
 .tip-head { display: flex; align-items: center; gap: 8px; }
@@ -305,3 +305,4 @@ h1 { letter-spacing: -.02em; }
 .input:focus { box-shadow: 0 0 0 3px var(--accentSoft); }
 .badge { font-weight: 700; }
 .pay-to { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--accentSoft); }
+@media (max-width: 900px) { .tip-slide { inset-inline-start: 16px; bottom: 84px; } }
