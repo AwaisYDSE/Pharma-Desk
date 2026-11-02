@@ -1,7 +1,7 @@
 {
   "name": "PharmaDesk — Pharmacy Management",
   "short_name": "PharmaDesk",
-  "description": "Offline-first pharmacy management by Awais Amin",
+  "description": "PharmaDesk: the complete medical store system for billing, expiry control, accounts and branches, even without internet. Developed by Awais Amin",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -21,6 +21,9 @@ import { licenseState, activateLicense, installId } from './license.ts';
 import { pcCode, resetOwnerPin } from './owner-reset.ts';
 import { setSupportAccess, supportOn, checkIn } from './vendor-link.ts';
 import * as notify from './notify.ts';
+import { makeBackup, restoreBackup } from './backup.ts';
+import { installUpdate } from './updater.ts';
+import { APP_VERSION } from '../shared/version.ts';
 import { runReorder, queuePurchaseOrder, queueReceipt, afterOps, autoPoOn } from './automation.ts';
 import { summarize, type Group } from '../shared/accounting.ts';
 import * as fbr from './fbr.ts';
@@ -46,7 +49,7 @@ export function setupShop(db: DB, name: string, choice: 'builtin' | 'own', owner
   return added;
 }
 
-export interface AppOptions { endpoints?: () => Endpoints; staticDir?: string; aiFetch?: typeof fetch; notifyFetch?: typeof fetch; fbrFetch?: typeof fetch; version?: string; dataDir?: string }
+export interface AppOptions { endpoints?: () => Endpoints; staticDir?: string; aiFetch?: typeof fetch; notifyFetch?: typeof fetch; fbrFetch?: typeof fetch; updateFetch?: typeof fetch; updateOpen?: (file: string, platform: string) => void; version?: string; dataDir?: string }
 
 export function createApp(db: DB, opts: AppOptions = {}) {
   ensureIdentity(db);
@@ -67,6 +70,8 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   // Licensing lock, kept in memory and refreshed so each request check is instant.
   // Off entirely unless the vendor enabled it in shared/vendor.ts.
   const LOCK = { locked: false, needsKey: false };
+  /** Paused, cancelled or ended: devices get no shop data at all, only the notice. */
+  const hardLocked = () => LOCK.locked && !LOCK.needsKey;
   const refreshLock = async () => {
     try {
       const s = await licenseState(db); LOCK.locked = s.locked; LOCK.needsKey = s.needsKey;
@@ -104,7 +109,7 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   };
 
   /* ---------- public ---------- */
-  app.get('/api/hello', (_req, res) => res.json({ app: 'pharmadesk', v: opts.version || '1.0.0' }));
+  app.get('/api/hello', (_req, res) => res.json({ app: 'pharmadesk', v: opts.version || APP_VERSION }));
 
   app.post('/api/pair', (req, res) => {
     if (LOCK.locked) return res.status(403).json({ code: 'LICENSE_LOCKED', message: 'This copy is not licensed or the plan has ended. Please renew with the vendor.' });
@@ -133,18 +138,38 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     const token = String(req.body?.token || '');
     const st = await activateLicense(db, token);
     await refreshLock();
-    void checkInNow(); // show up in the vendor dashboard straight away
+    await Promise.race([checkInNow(), new Promise(r => setTimeout(r, 8000))]); // the dashboard may still refuse this key
     return { status: st.state, license: await licenseState(db) };
   }));
   app.post('/local/setup-owner', localOnly, wrap(req => {
     if (licensingOn() && LOCK.needsKey) throw new AppError('LICENSE_REQUIRED', 'Enter your licence key before setting up the shop.');
-    const { name, username, pin, email, shopName, catalog, logo, photo } = req.body || {};
+    const { name, username, pin, email, shopName, catalog, logo, photo, termsVersion } = req.body || {};
     const img = (v: unknown, max = 400_000) => typeof v === 'string' && v.startsWith('data:image/') && v.length < max ? v : null;
     const owner = sup.createOwner(db, { name, username, pin, email, photo: img(photo) });
     if (shopName) renameServer(db, String(shopName).slice(0, 80));
     const added = setupShop(db, String(shopName || 'My Pharmacy').slice(0, 80), catalog === 'builtin' ? 'builtin' : 'own', owner, img(logo, 600_000));
+    if (termsVersion) sup.logEvent(db, 'terms.accepted', { version: String(termsVersion).slice(0, 20) }, owner.id, owner.name);
     void checkInNow();
     return { ok: true, userId: owner.id, medicines: added };
+  }));
+  /** The owner's own data as an encrypted file. Allowed even while locked. */
+  app.post('/local/backup', localOnly, wrap((req, res) => {
+    const file = makeBackup(db, String(req.body?.pin || ''));
+    sup.logEvent(db, 'data.backup', { locked: LOCK.locked });
+    res.setHeader('content-type', 'application/octet-stream');
+    res.send(file);
+    return undefined;
+  }));
+  app.post('/local/restore', localOnly, wrap(req => {
+    if (licensingOn() && LOCK.needsKey) throw new AppError('LICENSE_REQUIRED', 'Enter your licence key first.');
+    const r = restoreBackup(db, String(req.body?.file || ''), String(req.body?.pin || ''));
+    sup.logEvent(db, 'data.restored', { rows: r.rows });
+    return r;
+  }));
+  app.post('/local/update', localOnly, wrap(async () => {
+    const r = await installUpdate({ fetch: opts.updateFetch, open: opts.updateOpen });
+    sup.logEvent(db, 'app.update', { to: r.version });
+    return r;
   }));
   app.post('/local/checkin-now', localOnly, wrap(async () => { await checkInNow(); return { license: await licenseState(db) }; }));
   /** Forgot the owner PIN — only on the server PC itself. */
@@ -167,6 +192,11 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   /* ---------- paired devices ---------- */
   const device = requireDevice(db);
   app.use('/api', (req, res, next) => (req.path === '/hello' || req.path === '/pair') ? next() : device(req, res, next));
+  // Locked: only what a device needs to learn about the lock and to keep its reports safe.
+  app.use('/api', (req, res, next) => {
+    if (!hardLocked() || ['/hello', '/pair', '/pull', '/ops', '/sessions/offline', '/heartbeat'].includes(req.path)) return next();
+    res.status(423).json({ code: 'LICENSE_LOCKED', message: 'This copy is not licensed or the plan has ended. Please renew with the vendor.' });
+  });
 
   /** Session = a user logged in on this device. Needed for owner tools and AI. */
   const session = (perm?: string) => (req: Request, res: Response, next: NextFunction) => {
@@ -236,7 +266,15 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     afterOps(db, ops, new Set(results.filter(r => r.ok).map(r => r.id)), scheduleReorder);
     return { results };
   }));
-  app.get('/api/pull', wrap(req => pullChanges(db, Number(req.query.since || 0), Math.min(5000, Number(req.query.limit || 2000)))));
+  app.get('/api/pull', wrap(req => {
+    const since = Number(req.query.since || 0);
+    if (hardLocked()) {
+      // The revision does not move, so everything arrives normally once the plan is back on.
+      const shop = db.prepare(`SELECT id, data, hlc, rev FROM shop`).get() as { id: string; data: string; hlc: string; rev: number } | undefined;
+      return { changes: shop ? [{ tbl: 'shop', id: shop.id, data: JSON.parse(shop.data), hlc: shop.hlc, rev: shop.rev }] : [], rev: since, more: false };
+    }
+    return pullChanges(db, since, Math.min(5000, Number(req.query.limit || 2000)));
+  }));
 
   /* ---------- owner supervision ---------- */
   app.get('/api/supervision', session('users'), wrap(() => ({

@@ -52,7 +52,8 @@ describe('Modules are linked end to end', () => {
     // Everything reached the shop server and matches
     await sync.syncNow();
     expect(serverStock(S.db, med.id)).toBe(42);
-    expect(allRows<LedgerEntry>(S.db, 'ledger').length).toBe(3);
+    expect(allRows<LedgerEntry>(S.db, 'ledger').length).toBe(4);
+    expect(await partyBalance(ctx, "patient", pt.id)).toBe(-10000); // the bill is gone, what they paid is now theirs
   });
 
   it('an item must exist in Inventory before it can be purchased (device and server both refuse)', async () => {

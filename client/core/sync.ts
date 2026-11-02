@@ -206,7 +206,8 @@ export class SyncEngine {
     this.running = true;
     try {
       await this.pushSessionEvents();
-      const pushed = (await this.push()).length;
+      // While the plan is locked changes wait on this device, but it must still hear when the lock ends.
+      const pushed = await this.push().then(r => r.length).catch(e => { if ((e as AppError).code === 'LICENSE_LOCKED') return 0; throw e; });
       const pulled = await this.pull();
       if (this.ctx.sessionId) await this.client.request('POST', '/api/heartbeat', {}).catch(() => {});
       this.setOnline(true);

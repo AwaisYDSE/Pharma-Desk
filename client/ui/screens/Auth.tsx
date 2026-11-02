@@ -1,4 +1,6 @@
 // First-run owner setup (server PC), device pairing (QR + PIN) and login.
+import { TermsText } from './Lock.tsx';
+import { TERMS_VERSION, termsFor } from '../../../shared/terms.ts';
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../store.tsx';
@@ -31,11 +33,34 @@ function LangRow() {
 const Credit = () => <span className="row" style={{ justifyContent: 'center', gap: 6, fontSize: 12, color: '#94A3B8' }}>Developed by <strong style={{ color: '#5EEAD4' }}>Awais Amin</strong> <Heart size={14} /></span>;
 
 /** Shown once, on the server PC, before anything else: create the owner (admin). */
+/** Moving to a new PC: bring the shop back from a backup file instead of starting empty. */
+function RestoreBackup({ onDone }: { onDone: () => void }) {
+  const [pin, setPin] = useState(''), [file, setFile] = useState('');
+  const a = useAsync(async () => {
+    const r = await fetch('/local/restore', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ file, pin }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.message || 'Could not restore this backup');
+    onDone();
+  });
+  return (
+    <details className="lock-backup"><summary>Restore from a backup file</summary>
+      <div className="col">
+        <input className="input" type="file" accept=".pdbk" onChange={async e => { const x = e.target.files?.[0]; setFile(x ? await x.text() : ''); }} />
+        <label className="field">Owner PIN<input className="input" type="password" dir="ltr" value={pin} onChange={e => setPin(e.target.value)} autoComplete="off" /></label>
+        {a.err && <span className="err">{a.err}</span>}
+        <button type="button" className="btn" disabled={a.busy || !file || !pin} onClick={() => void a.run()}>Restore backup</button>
+      </div>
+    </details>
+  );
+}
+
 export function OwnerSetup({ onDone, standalone, onBack }: { onDone: () => void; standalone?: boolean; onBack?: () => void }) {
-  const { t, ctx } = useStore();
+  const { t, ctx, lang } = useStore();
   const [f, setF] = useState({ shopName: '', name: '', username: 'owner', pin: '', pin2: '', catalog: '' as '' | 'builtin' | 'own', logo: null as string | null, photo: null as string | null });
   const [step, setStep] = useState(1);
+  const [terms, setTerms] = useState(false);
   const a = useAsync(async () => {
+    if (!terms) throw new Error('Please accept the terms and conditions');
     if (f.pin !== f.pin2) throw new Error('The two PINs are different');
     if (!f.catalog) throw new Error('Choose how to start your medicine list');
     if (!/^\d{6,}$/.test(f.pin) && f.pin.length < 8) throw new Error('Use a PIN of at least 6 digits');
@@ -43,7 +68,7 @@ export function OwnerSetup({ onDone, standalone, onBack }: { onDone: () => void;
       const { setupStandalone } = await import('../../core/standalone.ts');
       await setupStandalone(ctx, { ...f, catalog: f.catalog as 'builtin' | 'own' });
     } else {
-      const r = await fetch('/local/setup-owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(f) });
+      const r = await fetch('/local/setup-owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...f, termsVersion: TERMS_VERSION }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.message || 'The server could not save this. Is it still running?');
     }
@@ -54,6 +79,7 @@ export function OwnerSetup({ onDone, standalone, onBack }: { onDone: () => void;
     <div className="auth"><FloatingPills />
       <form className="panel" style={{ width: 'min(560px, 100%)' }} onSubmit={e => { e.preventDefault(); if (step === 1) setStep(2); else void a.run(); }}>
         <Brand sub={standalone ? 'This device only · first start' : 'Main Server PC · first start'} />
+        {!standalone && step === 1 && <RestoreBackup onDone={onDone} />}
         {onBack && step === 1 && <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={onBack}>← Back</button>}
         <div className="row" style={{ justifyContent: 'center', gap: 6 }}>{[1, 2].map(n => <span key={n} style={{ width: 34, height: 6, borderRadius: 4, background: n <= step ? '#2DD4BF' : 'rgba(255,255,255,.15)' }} />)}</div>
         <AnimatePresence mode="wait">
@@ -86,10 +112,13 @@ export function OwnerSetup({ onDone, standalone, onBack }: { onDone: () => void;
                   <p style={{ margin: '6px 0 0', fontSize: 13, color: '#94A3B8' }}>{body}</p>
                 </motion.button>
               ))}
+              <h2 style={{ margin: '6px 0 0', fontSize: 18 }}>{termsFor(lang).title}</h2>
+              <div className="terms-box" style={{ color: '#CBD5E1', background: 'rgba(15,23,42,.5)' }}><TermsText /></div>
+              <label className="terms-accept"><input type="checkbox" checked={terms} onChange={e => setTerms(e.target.checked)} /> {termsFor(lang).accept}</label>
               {a.err && <span className="err">{a.err}</span>}
               <div className="row" style={{ flexWrap: 'nowrap' }}>
                 <button type="button" className="btn" onClick={() => setStep(1)}>Back</button>
-                <button className="btn primary" style={{ flex: 1 }} disabled={a.busy || !f.catalog}>{a.busy ? 'Setting up…' : 'Finish setup'}</button>
+                <button className="btn primary" style={{ flex: 1 }} disabled={a.busy || !f.catalog || !terms}>{a.busy ? 'Setting up…' : 'Finish setup'}</button>
               </div>
             </motion.div>
           )}

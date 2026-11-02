@@ -2,7 +2,7 @@
 
 # 💊 PharmaDesk
 
-**Offline-first pharmacy & medical store management — Windows, Android and iPhone.**
+**The complete medical store system for billing, expiry control, accounts and branches, even without internet — Windows, Mac, Android and iPhone.**
 
 ### Developed by **Awais Amin**
 

@@ -77,7 +77,7 @@ function Statements({ data }: { data: BooksData }) {
         {rows.length === 0 ? <Empty icon="chart" text="Nothing in these dates." /> :
           <div className="table-wrap"><table className="t"><thead><tr><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Document')}</th><th>{t('Customer or supplier')}</th><th>{t('Payment')}</th><th>{t('Amount')}</th><th>{t('Money in')}</th><th>{t('Money out')}</th></tr></thead>
             <tbody>{rows.map((e, i) => <motion.tr key={e.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i, 20) * 0.015 }}>
-              <td className="num">{e.date}</td><td><span className={`pill ${KIND[e.kind][1]}`}>{t(KIND[e.kind][0])}</span></td><td>{e.doc === 'PAYMENT' ? '' : e.doc}</td><td>{e.partyName}</td><td>{t(METHOD[e.method])}</td>
+              <td className="num">{e.date}</td><td><span className={`badge ${KIND[e.kind][1]}`}>{t(KIND[e.kind][0])}</span></td><td>{e.doc === 'PAYMENT' ? '' : e.doc}</td><td>{e.partyName}</td><td>{t(METHOD[e.method])}</td>
               <td className="num">{money(e.amount, lang)}</td><td className="num">{e.moneyIn ? money(e.moneyIn, lang) : ''}</td><td className="num">{e.moneyOut ? money(e.moneyOut, lang) : ''}</td></motion.tr>)}</tbody></table></div>}
       </section>
     </>
@@ -108,7 +108,7 @@ function CashBook({ data }: { data: BooksData }) {
       <section className="card">
         {b.rows.length === 0 ? <Empty icon="chart" text="Nothing in these dates." /> :
           <div className="table-wrap"><table className="t"><thead><tr><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Document')}</th><th>{t('Customer or supplier')}</th><th>{t('Money in')}</th><th>{t('Money out')}</th><th>{t('Balance')}</th></tr></thead>
-            <tbody>{b.rows.map(e => <tr key={e.id}><td className="num">{e.date}</td><td><span className={`pill ${KIND[e.kind][1]}`}>{t(KIND[e.kind][0])}</span></td><td>{e.doc === 'PAYMENT' ? '' : e.doc}</td><td>{e.partyName}</td>
+            <tbody>{b.rows.map(e => <tr key={e.id}><td className="num">{e.date}</td><td><span className={`badge ${KIND[e.kind][1]}`}>{t(KIND[e.kind][0])}</span></td><td>{e.doc === 'PAYMENT' ? '' : e.doc}</td><td>{e.partyName}</td>
               <td className="num">{e.moneyIn ? money(e.moneyIn, lang) : ''}</td><td className="num">{e.moneyOut ? money(e.moneyOut, lang) : ''}</td><td className="num"><strong>{money(e.balance, lang)}</strong></td></tr>)}</tbody></table></div>}
       </section>
     </>

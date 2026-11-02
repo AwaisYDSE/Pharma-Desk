@@ -109,6 +109,7 @@ export async function pingStatus(db: DB, deps: CheckinDeps = {}): Promise<{ susp
     const d = await res.json() as { suspended?: boolean; revoked?: boolean; message?: string | null };
     setSuspended(db, !!d.suspended); setRevoked(db, !!d.revoked);
     setSetting(db, 'vendor_message', d.message || null);
+    setSetting(db, 'vendor_checkin', new Date().toISOString());
     return { suspended: !!d.suspended, revoked: !!d.revoked };
   } catch { return null; }
 }

@@ -21,7 +21,7 @@ export function Accounts() {
   const tabs: [typeof tab, string][] = [['overview', 'Overview'], ['statement', 'Statements'], ['cash', 'Cash book'], ['parties', 'Who owes what'], ['position', 'Business position']];
   return (
     <>
-      <div className="tabs books-tabs" role="tablist">{tabs.map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
+      <div className="books-tabs"><div className="tabs" role="tablist">{tabs.map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div></div>
       {tab === 'overview' ? <Overview /> : <Books view={tab} />}
     </>
   );

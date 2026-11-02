@@ -5,6 +5,8 @@ import { MotionConfig } from 'framer-motion';
 import { AppProvider, useStore } from './store.tsx';
 import { Toasts , ConfirmHost} from './components.tsx';
 import { Accounts } from './screens/Accounts.tsx';
+import { LockScreen } from './screens/Lock.tsx';
+import { KeyboardAssist, TipSlider, UpdateBlock, UpdateNotice, useUpdate } from './Assist.tsx';
 import { OwnerSetup, PairScreen, LoginScreen, LicenseGate, supportLogin, type LicenseInfo } from './screens/Auth.tsx';
 supportLogin.capture();
 import { Shell, MoreMenu } from './screens/Shell.tsx';
@@ -35,8 +37,9 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
 }
 
 function App() {
-  const { ctx, user, isServerPc } = useStore();
+  const { ctx, user, isServerPc, shop } = useStore();
   const [needsOwner, setNeedsOwner] = useState<boolean | null>(null);
+  const update = useUpdate();
   const [license, setLicense] = useState<LicenseInfo | null>(null);
   const [, setPaired] = useState(0);
   const [route, setRoute] = useState<string>(() => location.hash.replace('#/', '') || '');
@@ -63,6 +66,8 @@ function App() {
   if (needsOwner) return <OwnerSetup onDone={() => location.reload()} />;
   if (choosing === 'standalone' && !ctx.pairing && !ctx.standalone) return <OwnerSetup standalone onBack={() => setChoosing(null)} onDone={() => { setChoosing(null); setPaired(n => n + 1); }} />;
   if (!ctx.pairing && !ctx.standalone) return <PairScreen onPaired={() => setPaired(n => n + 1)} />;
+  if (update.need === 'mandatory') return <UpdateBlock u={update} />;
+  if (shop?.planLock) return <LockScreen lock={shop.planLock} />;
   if (!user) return <LoginScreen />;
 
   const first = can(user, 'pos') ? 'pos' : MODULES.find(m => can(user, m.key))?.key || 'settings';
@@ -72,7 +77,7 @@ function App() {
     suppliers: <Parties kind="suppliers" />, patients: <Parties kind="patients" />, alerts: <Alerts />, reports: <Reports />, accounts: <Accounts />,
     users: <Users />, settings: <Settings />, more: <MoreMenu go={go} />, about: <About />,
   };
-  return <Shell route={r} go={go}><ErrorBoundary key={r + navKey}>{screens[r]}</ErrorBoundary></Shell>;
+  return <><Shell route={r} go={go}><ErrorBoundary key={r + navKey}>{screens[r]}</ErrorBoundary></Shell><KeyboardAssist go={go} /><TipSlider /><UpdateNotice u={update} /></>;
 }
 
 createRoot(document.getElementById('root')!).render(

@@ -1,7 +1,7 @@
 {
   "name": "pharmadesk",
-  "version": "1.0.0",
-  "description": "Offline-first pharmacy management system by Awais Amin",
+  "version": "1.1.0",
+  "description": "PharmaDesk: the complete medical store system for billing, expiry control, accounts and branches, even without internet. Developed by Awais Amin",
   "scripts": {
     "test": "vitest run",
     "build": "node build.mjs",

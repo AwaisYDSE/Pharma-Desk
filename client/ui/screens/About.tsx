@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Icon, FloatingPills } from '../components.tsx';
 import { useStore } from '../store.tsx';
 import { translate } from '../i18n.ts';
+import { TermsModal } from './Lock.tsx';
+import { termsFor } from '../../../shared/terms.ts';
 
 const LINE_UR = 'تیار کردہ: اویس امین';
 
@@ -60,6 +62,7 @@ export function Splash({ onDone }: { onDone: () => void }) {
 
 export function About() {
   const { lang } = useStore();
+  const [showTerms, setShowTerms] = useState(false);
   const line = translate(lang, 'credits');
   const facts = [
     ['Designed & coded by', 'Awais Amin'], ['Made for', 'Medical stores in Pakistan and beyond'],
@@ -92,6 +95,8 @@ export function About() {
           </motion.div>
         ))}
       </div>
+      <div className="row" style={{ justifyContent: 'center' }}><button type="button" className="btn sm" onClick={() => setShowTerms(true)}>{termsFor(lang).title}</button></div>
+      {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
       <p className="small faint" style={{ textAlign: 'center' }}>Buy, renew or get support by email. Free support for 1 month from purchase, then charges apply.<br /><a href="mailto:awaisdpw.co@gmail.com" style={{ color: '#5EEAD4' }} data-no-tr="">awaisdpw.co@gmail.com</a></p>
       <p className="small faint" style={{ textAlign: 'center' }}>© {new Date().getFullYear()} Awais Amin · Commercial licence, all rights reserved</p>
     </>

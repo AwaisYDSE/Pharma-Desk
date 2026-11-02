@@ -10,6 +10,7 @@ await build({
 });
 fs.cpSync('public', 'dist', { recursive: true });
 fs.writeFileSync('dist/.nojekyll', '');
+fs.copyFileSync('release.json', 'dist/version.json');
 // The offline cache gets every app file (all screens and all languages), versioned by content,
 // so a phone that goes offline right after installing still has everything.
 import crypto from 'node:crypto';

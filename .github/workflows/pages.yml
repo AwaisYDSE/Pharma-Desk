@@ -120,6 +120,7 @@ jobs:
       - run: |
           mkdir site && cp -R got/app/dist/. site/
           cp got/windows/PharmaDesk-Setup.exe got/mac/PharmaDesk-Mac.pkg site/
+          node -e "const fs=require('fs'),c=require('crypto');const h=f=>c.createHash('sha256').update(fs.readFileSync(f)).digest('hex');const v=JSON.parse(fs.readFileSync('site/version.json'));v.sha256={windows:h('site/PharmaDesk-Setup.exe'),mac:h('site/PharmaDesk-Mac.pkg')};fs.writeFileSync('site/version.json',JSON.stringify(v))"
           ls -la site
       - uses: actions/upload-pages-artifact@v3
         with: { path: site }
