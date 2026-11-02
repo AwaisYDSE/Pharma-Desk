@@ -196,6 +196,8 @@ export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: Serve
         ops: [{ id: opId, kind: 'sale', strict: true, deviceId: ctx.deviceId, userId: ctx.user.id, createdAt: now, rows, deltas }],
       }, { session: false });
       const r = results[0];
+      // Logged in while the server was off: billing never stops, the bill goes through as an offline sale.
+      if (r.code === 'NEEDS_LOGIN') throw new NetworkError();
       if (!r.ok) {
         if (r.code === 'OUT_OF_STOCK') {
           const short = r.conflicts?.[0];
@@ -271,7 +273,7 @@ export async function returnedQty(ctx: Ctx, invoiceId: string): Promise<Map<stri
 
 /**
  * Return some items from a bill. Stock goes back to the same batches, the money given back is
- * recorded (for udhaar bills it is taken off the customer's balance), and the bill shows
+ * recorded (for credit bills it is taken off the customer's balance), and the bill shows
  * "Partially refunded" (or "Refunded" when everything came back). Needs invoices.refund.
  */
 export async function refundItems(ctx: Ctx, invoiceId: string, lines: { itemId: string; qty: number }[], reason: string, supervisor?: User) {

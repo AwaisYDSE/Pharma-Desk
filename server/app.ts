@@ -26,7 +26,7 @@ import { summarize, type Group } from '../shared/accounting.ts';
 import * as fbr from './fbr.ts';
 import { VENDOR } from '../shared/vendor.ts';
 import { AppError } from '../shared/util.ts';
-import type { Op, User, Medicine, Batch, Invoice, InvoiceItem, Shop } from '../shared/types.ts';
+import type { Op, OpResult, User, Medicine, Batch, Invoice, InvoiceItem, Shop } from '../shared/types.ts';
 import { isoDate, addDays, daysBetween } from '../shared/util.ts';
 
 type Req = Request & { device?: DeviceClaims; user?: User; sessionId?: string };
@@ -61,6 +61,8 @@ export function createApp(db: DB, opts: AppOptions = {}) {
     reorderTimer.unref?.();
   };
   const limiter = new PairLimiter();
+  const loginLimiter = new PairLimiter();
+  loginLimiter.globalMax = 100_000; // locks one user on one device, never the whole shop
 
   // Licensing lock, kept in memory and refreshed so each request check is instant.
   // Off entirely unless the vendor enabled it in shared/vendor.ts.
@@ -85,9 +87,12 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   app.use(express.json({ limit: '12mb' }));
   app.use((req, res, next) => {
     // Devices load the app from GitHub Pages / the installer and call this server.
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, x-session');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    // The server-PC-only routes are never open to other websites.
+    if (!req.path.startsWith('/local')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, x-session');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    }
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
@@ -181,8 +186,14 @@ export function createApp(db: DB, opts: AppOptions = {}) {
 
   app.post('/api/login', wrap(req => {
     const { username, pin } = req.body || {};
-    const r = sup.login(db, String(username || ''), String(pin || ''), { id: req.device!.did, name: deviceName(req) });
-    return { sessionId: r.sessionId, userId: r.user.id };
+    const key = `${req.device!.did}:${String(username || '').trim().toLowerCase()}`;
+    const blocked = loginLimiter.check(key);
+    if (blocked) throw new AppError('LOCKED', blocked);
+    try {
+      const r = sup.login(db, String(username || ''), String(pin || ''), { id: req.device!.did, name: deviceName(req) });
+      loginLimiter.ok(key);
+      return { sessionId: r.sessionId, userId: r.user.id };
+    } catch (e) { if ((e as AppError).code === 'BAD_LOGIN') loginLimiter.fail(key); throw e; }
   }));
   app.post('/api/logout', wrap(req => { sup.logout(db, String(req.headers['x-session'] || ''), 'Logged out'); return { ok: true }; }));
   app.post('/api/heartbeat', session(), wrap(() => ({ ok: true, at: new Date().toISOString() })));
@@ -201,10 +212,27 @@ export function createApp(db: DB, opts: AppOptions = {}) {
   }));
 
   /* ---------- sync ---------- */
+  /** Does this device have to prove who is making this change? Sales, voids and returns can be approved
+   *  by PIN at the counter while offline, so they are kept and logged instead of waiting. */
+  const opIsProven = (op: Op, deviceId: string): boolean => {
+    if (!op || typeof op !== 'object' || sup.userCount(db) === 0) return true;
+    if ((op.kind === 'sale' && !op.strict) || op.kind === 'void' || op.kind === 'refund') return true;
+    if (op.kind === 'upsert' && Array.isArray(op.rows) && op.rows.every(r => r?.tbl === 'audit') && !op.deltas?.length) return true;
+    return sup.verifiedOnDevice(db, op.userId, deviceId);
+  };
+
   app.post('/api/ops', wrap(req => {
     requireUnlocked(); // billing/stock changes stop when unlicensed or expired; reading still works
     const ops: Op[] = Array.isArray(req.body?.ops) ? req.body.ops.slice(0, 200) : [];
-    const results = ops.map(op => applyOp(db, { ...op, deviceId: req.device!.did }));
+    const results: OpResult[] = [];
+    for (const op of ops) {
+      // Waits until this person logs in online on this device. Nothing is lost and order is kept.
+      if (!opIsProven(op, req.device!.did)) { results.push({ id: op.id, ok: false, code: 'NEEDS_LOGIN', message: 'Please log out and log in again so your changes can be sent to the server.' }); break; }
+      const unproven = op?.userId && !sup.verifiedOnDevice(db, op.userId, req.device!.did);
+      const r = applyOp(db, { ...op, deviceId: req.device!.did });
+      if (r.ok && unproven && op.kind !== 'upsert') sup.logEvent(db, 'op.unverified', { kind: op.kind, opId: op.id, message: 'Made on a device where this person has not logged in online.' }, op.userId, null, req.device!.did);
+      results.push(r);
+    }
     afterOps(db, ops, new Set(results.filter(r => r.ok).map(r => r.id)), scheduleReorder);
     return { results };
   }));

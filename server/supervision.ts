@@ -121,6 +121,19 @@ export function login(db: DB, username: string, pin: string, device: { id: strin
   return startSession(db, u, device, opts);
 }
 
+/**
+ * True when this user proved their PIN to the server on this device (not an offline login reported later)
+ * in the last 30 days, and has not been force-logged-out since.
+ */
+export function verifiedOnDevice(db: DB, userId: string | null, deviceId: string, now = Date.now()): boolean {
+  if (!userId) return false;
+  const u = getRow<User>(db, 'users', userId);
+  if (!u || u.deleted) return false;
+  const since = Math.max(now - 30 * 864e5, u.forceLogoutAt ? Date.parse(u.forceLogoutAt) || 0 : 0);
+  const r = db.prepare(`SELECT MAX(login_at) AS at FROM sessions WHERE user_id = ? AND device_id = ? AND offline = 0`).get(userId, deviceId) as { at: string | null };
+  return !!r.at && Date.parse(r.at) >= since;
+}
+
 export function startSession(db: DB, u: User, device: { id: string; name: string }, opts: { at?: string; offline?: boolean } = {}) {
   const id = uuid(), at = opts.at || new Date().toISOString();
   db.prepare(`INSERT INTO sessions(id, user_id, device_id, device_name, login_at, last_seen, offline) VALUES (?, ?, ?, ?, ?, ?, ?)`)

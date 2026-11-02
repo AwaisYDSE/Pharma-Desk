@@ -6,7 +6,7 @@ fs.mkdirSync('dist');
 await build({
   entryPoints: { app: 'client/ui/main.tsx' }, bundle: true, minify: true, format: 'esm', target: ['es2020', 'safari15'],
   outdir: 'dist', sourcemap: false, define: { 'process.env.NODE_ENV': '"production"' }, legalComments: 'none',
-  banner: { js: '/* PharmaDesk — © Awais Amin · MIT */' }, splitting: true, chunkNames: 'chunks/[name]-[hash]', logLevel: 'warning',
+  banner: { js: '/* PharmaDesk — © Awais Amin · Commercial software */' }, splitting: true, chunkNames: 'chunks/[name]-[hash]', logLevel: 'warning',
 });
 fs.cpSync('public', 'dist', { recursive: true });
 fs.writeFileSync('dist/.nojekyll', '');

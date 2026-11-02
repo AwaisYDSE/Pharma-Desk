@@ -1,5 +1,5 @@
 // PharmaDesk — shared helpers (used by the shop server and every device)
-// © Awais Amin · MIT License
+// © Awais Amin · Commercial software
 
 export const uuid = (): string =>
   globalThis.crypto?.randomUUID?.() ??

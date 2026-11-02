@@ -108,7 +108,14 @@ export function isLocalRequest(req: Request): boolean {
   const local = ra === '127.0.0.1' || ra === '::1' || ra === '::ffff:127.0.0.1';
   const forwarded = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.headers['forwarded'] ||
     req.headers['tailscale-user-login'] || req.headers['cf-ray'];
-  return local && !forwarded;
+  if (!local || forwarded) return false;
+  // Another website open in this PC's browser must not be able to reach these routes,
+  // and a look-alike address pointing at this PC must not either.
+  const host = String(req.headers.host || '');
+  if (!/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) return false;
+  if (req.headers['sec-fetch-site'] === 'cross-site') return false;
+  const origin = req.headers.origin;
+  return !origin || origin === `http://${host}`;
 }
 
 export interface PairResult { token: string; deviceId: string; serverId: string; serverName: string; beaconKey: string }
@@ -168,7 +175,9 @@ export function requireDevice(db: DB) {
 
 /* ---------------- secrets at rest (Gemini key, SMTP password) ---------------- */
 
-const keyFrom = (secret: string) => crypto.createHash('sha256').update(`${secret}|${os.hostname()}|pharmadesk`).digest();
+const keyFrom = (secret: string) => crypto.createHash('sha256').update(`${secret}|pharmadesk`).digest();
+/** Older versions mixed in the PC name, so renaming the PC lost the saved keys. Still read those. */
+const oldKeyFrom = (secret: string) => crypto.createHash('sha256').update(`${secret}|${os.hostname()}|pharmadesk`).digest();
 
 export function encryptSecret(plain: string, secret: string): string {
   const iv = crypto.randomBytes(12);
@@ -177,10 +186,13 @@ export function encryptSecret(plain: string, secret: string): string {
   return [iv, c.getAuthTag(), enc].map(b => b.toString('base64')).join('.');
 }
 export function decryptSecret(blob: string, secret: string): string | null {
-  try {
-    const [iv, tag, enc] = blob.split('.').map(s => Buffer.from(s, 'base64'));
-    const d = crypto.createDecipheriv('aes-256-gcm', keyFrom(secret), iv);
-    d.setAuthTag(tag);
-    return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
-  } catch { return null; }
+  for (const key of [keyFrom(secret), oldKeyFrom(secret)]) {
+    try {
+      const [iv, tag, enc] = blob.split('.').map(s => Buffer.from(s, 'base64'));
+      const d = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      d.setAuthTag(tag);
+      return Buffer.concat([d.update(enc), d.final()]).toString('utf8');
+    } catch { /* try the older key */ }
+  }
+  return null;
 }

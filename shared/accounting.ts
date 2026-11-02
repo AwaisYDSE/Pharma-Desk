@@ -19,8 +19,8 @@ export interface Period {
   grossProfit: number;    // (netSales − tax) − cogs
   expenses: number;       // rent, salaries, bills…
   netProfit: number;      // grossProfit − expenses
-  cashIn: number;         // money actually received: paid bills + udhaar collected
-  creditSales: number;    // sold on udhaar (not yet paid)
+  cashIn: number;         // money actually received: paid bills + credit collected
+  creditSales: number;    // sold on credit (not yet paid)
   creditCollected: number;
   purchases: number;      // supplier bills for stock received (restocked)
   supplierPaid: number;   // payments made to suppliers

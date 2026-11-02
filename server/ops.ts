@@ -11,7 +11,7 @@ import { getRow, allRows, putRow, upsertLWW, nextRev, tx, SQL_TABLE } from './db
 import { HLC, uuid, OutOfStockError, AppError, isoDate } from '../shared/util.ts';
 import { pendingBatchId, isSellable, fefoSort } from '../shared/fefo.ts';
 import { can, rowPerm } from '../shared/permissions.ts';
-import { SYNC_TABLES, type Op, type OpResult, type Batch, type InvoiceItem, type User, type PullResponse, type PullChange, type Synced, type SyncTable, type AuditEntry } from '../shared/types.ts';
+import { SYNC_TABLES, type Op, type OpResult, type Batch, type Invoice, type InvoiceItem, type User, type PullResponse, type PullChange, type Synced, type SyncTable, type AuditEntry } from '../shared/types.ts';
 
 export const serverClock = new HLC('server');
 
@@ -20,7 +20,66 @@ function audit(db: DB, action: string, details: unknown, entity: string | null =
   putRow(db, 'audit', row, serverClock.tick());
 }
 
+/** What each kind of operation may carry. Anything else in it is a tampered device. */
+function checkShape(op: Op) {
+  const tables = op.rows.map(r => r.tbl as string);
+  const allowed = (list: string[]) => tables.every(t => list.includes(t));
+  const refuse = (m: string) => { throw new AppError('FORBIDDEN', m); };
+  if (op.kind === 'sale') {
+    if (!allowed(['invoices', 'invoiceItems', 'ledger', 'audit'])) refuse('A sale can only contain bill data');
+    if (op.deltas.some(d => d.delta >= 0 || d.create)) refuse('A sale can only take stock out');
+    for (const r of op.rows) {
+      if (r.tbl !== 'ledger') continue;
+      const l = r.row as { partyType?: string; credit?: number };
+      if (l.partyType !== 'patient' || l.credit) refuse('A sale can only add to what the customer owes');
+    }
+  }
+  if (op.kind === 'void' && !allowed(['invoices', 'audit'])) refuse('A void can only change the bill');
+  if (op.kind === 'refund' && !allowed(['refunds', 'invoices', 'ledger', 'audit'])) refuse('A return can only change the bill');
+  if (op.kind === 'stock' && !allowed(tables.includes('purchases') ? ['purchases', 'purchaseItems', 'medicines', 'batches', 'ledger', 'audit'] : ['audit'])) refuse('A stock change cannot carry other data');
+}
+
+/** A sale may never replace an existing bill or ledger line (retries are answered from the ops table first). */
+function checkSaleIsNew(db: DB, op: Op) {
+  if (op.kind !== 'sale') return;
+  for (const r of op.rows) {
+    if (r.tbl === 'audit') continue;
+    if (getRow(db, r.tbl, r.row.id)) throw new AppError('FORBIDDEN', 'A sale cannot change an existing record');
+  }
+}
+
+/** The special permissions a sale needs, from what is actually on the bill. */
+export function salePerms(db: DB, op: Op): string[] {
+  const need = new Set<string>();
+  for (const r of op.rows) {
+    if (r.tbl === 'invoices') {
+      const inv = r.row as Invoice;
+      if (inv.discount > 0) need.add('pos.discount');
+      if (inv.payMethod === 'credit') need.add('pos.credit_sale');
+    }
+    if (r.tbl !== 'invoiceItems') continue;
+    const it = r.row as InvoiceItem;
+    if (it.discount > 0) need.add('pos.discount');
+    if (!(it.unitPrice > 0)) { need.add('pos.zero_price'); continue; }
+    const med = getRow<Synced & { salePrice?: number }>(db, 'medicines', it.medicineId);
+    const batch = getRow<Batch>(db, 'batches', it.batchId);
+    const bought = allRows<Synced & { salePrice?: number | null }>(db, 'purchaseItems', `WHERE json_extract(data, '$.medicineId') = ?`, it.medicineId).filter(p => !p.deleted);
+    const known = [med?.salePrice, batch?.salePrice, ...bought.map(p => p.salePrice)].filter((p): p is number => !!p && p > 0);
+    if (known.length && !known.includes(it.unitPrice)) need.add('pos.price');
+  }
+  return [...need];
+}
+
+/** The supervisor who approved this bill at the counter, if any. */
+function saleApprover(db: DB, op: Op): User | null {
+  const inv = op.rows.find(r => r.tbl === 'invoices')?.row as Invoice | undefined;
+  const id = inv?.note?.match(/^approved by (.+)$/)?.[1];
+  return id ? getRow<User>(db, 'users', id) : null;
+}
+
 function checkPermission(db: DB, op: Op) {
+  checkShape(op);
+  checkSaleIsNew(db, op);
   const tables = op.rows.map(r => r.tbl);
   const userCount = (db.prepare(`SELECT COUNT(*) AS n FROM users`).get() as { n: number }).n;
   if (userCount === 0) {
@@ -39,6 +98,12 @@ function checkPermission(db: DB, op: Op) {
   if (!selfOnly && !offlineSale) {
     for (const need of neededPerms(db, op)) {
       if (!can(user, need)) throw new AppError('FORBIDDEN', `${user.name || user.username} is not allowed to do this (needs "${need}")`);
+    }
+    if (op.kind === 'sale') {
+      const approver = saleApprover(db, op);
+      for (const need of salePerms(db, op)) {
+        if (!can(user, need) && !can(approver, need)) throw new AppError('FORBIDDEN', `${user.name || user.username} is not allowed to do this (needs "${need}")`);
+      }
     }
   }
   // The owner account is protected: nobody else can change, disable or delete it,
@@ -149,6 +214,12 @@ export function applyOp(db: DB, op: Op): OpResult {
     checkPermission(db, op);
     result = tx(db, () => {
       const res: OpResult = { id: op.id, ok: true, reallocations: [], conflicts: [] };
+      // An offline sale already happened, so it is kept, but the owner sees anything it was not allowed to do.
+      if (op.kind === 'sale' && !op.strict) {
+        const seller = op.userId ? getRow<User>(db, 'users', op.userId) : null, approver = saleApprover(db, op);
+        const missing = salePerms(db, op).filter(p => !can(seller, p) && !can(approver, p));
+        if (missing.length) audit(db, 'sale.needs_review', { missing, opId: op.id, deviceId: op.deviceId, message: 'Sold offline without the permission for this. Please check the bill.' }, 'invoices', op.rows.find(r => r.tbl === 'invoices')?.row.id ?? null, op.userId);
+      }
       for (const r of op.rows) {
         if (r.tbl === 'users') {
           const cur = getRow<User>(db, 'users', r.row.id);

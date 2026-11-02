@@ -21,7 +21,7 @@ async function ownerDevice() {
 }
 
 describe('Modules are linked end to end', () => {
-  it('supplier → purchase → receive → inventory → sale → customer udhaar → payment → void returns stock', async () => {
+  it('supplier → purchase → receive → inventory → sale → customer credit → payment → void returns stock', async () => {
     const { S, ctx, client, sync } = await ownerDevice();
     const sup = await saveRecord<Supplier>(ctx, 'suppliers', { name: 'Muller & Phipps', phone: '021-1234567' });
     const med = await saveMedicine(ctx, { name: 'Risek', generic: 'Omeprazole', strength: '20mg', form: 'Capsule', salePrice: 3100 });
@@ -41,7 +41,7 @@ describe('Modules are linked end to end', () => {
     expect(cart.lines[0].unitPrice).toBe(3200);
     const { invoice } = await checkout(ctx, cart, { method: 'credit', paid: 0 }, client);
     expect(await stockOf(ctx, med.id)).toBe(32);
-    expect(await partyBalance(ctx, 'patient', pt.id)).toBe(invoice.total); // Customer udhaar
+    expect(await partyBalance(ctx, 'patient', pt.id)).toBe(invoice.total); // Customer credit
     await recordPayment(ctx, 'patient', pt.id, 10000, 'Cash');
     expect(await partyBalance(ctx, 'patient', pt.id)).toBe(invoice.total - 10000);
 

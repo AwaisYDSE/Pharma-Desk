@@ -83,10 +83,10 @@ export function Accounts() {
         </section>
         <section className="card col"><h2>Cash flow</h2>
           <div className="col" style={{ gap: 0 }}>
-            <Row l="Paid bills" v={T.cashIn - T.creditCollected} /><Row l="Udhaar collected" v={T.creditCollected} /><Row l="Money in" v={T.cashIn} strong color="var(--ok)" />
+            <Row l="Paid bills" v={T.cashIn - T.creditCollected} /><Row l="Credit collected" v={T.creditCollected} /><Row l="Money in" v={T.cashIn} strong color="var(--ok)" />
             <Row l="Paid to suppliers" v={-T.supplierPaid} /><Row l="Expenses" v={-T.expenses} /><Row l="Refunds paid back" v={-(T.cashOut - T.supplierPaid - T.expenses)} />
             <Row l="Money out" v={-T.cashOut} strong color="var(--bad)" />
-            <Row l="Sold on udhaar (not paid yet)" v={T.creditSales} sub /><Row l="Stock received (supplier bills)" v={T.purchases} sub />
+            <Row l="Sold on credit (not paid yet)" v={T.creditSales} sub /><Row l="Stock received (supplier bills)" v={T.purchases} sub />
           </div>
         </section>
         <section className="card col"><h2>{taxLabel} by rate</h2>
@@ -113,7 +113,7 @@ export function Accounts() {
   );
 }
 
-const STATUS: Record<string, string> = { paid: 'Paid', credit: 'Unpaid (udhaar)', partial_refund: 'Partially refunded', refunded: 'Refunded', void: 'Cancelled' };
+const STATUS: Record<string, string> = { paid: 'Paid', credit: 'Unpaid (credit)', partial_refund: 'Partially refunded', refunded: 'Refunded', void: 'Cancelled' };
 
 function Row({ l, v, strong, sub, color }: { l: string; v: number; strong?: boolean; sub?: boolean; color?: string }) {
   const { lang } = useStore();

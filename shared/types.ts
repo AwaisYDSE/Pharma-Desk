@@ -21,7 +21,7 @@ export interface Batch extends Synced {
   costPrice: number; salePrice?: number | null; supplierId?: string | null; purchaseId?: string | null;
   receivedAt?: string; pending?: boolean;
 }
-/** paid · credit = unpaid (udhaar) · partial_refund / refunded = some / all items returned · void = cancelled. */
+/** paid · credit = unpaid (credit) · partial_refund / refunded = some / all items returned · void = cancelled. */
 export type InvoiceStatus = 'paid' | 'credit' | 'partial_refund' | 'refunded' | 'void';
 export interface Invoice extends Synced {
   number: string; patientId?: string | null; cashierId: string; createdAt: string; status: InvoiceStatus;

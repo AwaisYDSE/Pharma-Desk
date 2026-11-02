@@ -7,7 +7,7 @@ fs.mkdirSync(`${out}/server`, { recursive: true });
 await build({
   entryPoints: ['server/main.ts'], bundle: true, platform: 'node', target: 'node22', format: 'esm', outfile: `${out}/server/server.mjs`,
   external: ['node:sqlite'], legalComments: 'none', logLevel: 'warning',
-  banner: { js: "/* PharmaDesk server — © Awais Amin · MIT */\nimport { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
+  banner: { js: "/* PharmaDesk server — © Awais Amin · Commercial software */\nimport { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
 });
 fs.cpSync('dist', `${out}/dist`, { recursive: true });
 for (const f of fs.readdirSync('windows')) fs.copyFileSync(`windows/${f}`, `${out}/${f}`);

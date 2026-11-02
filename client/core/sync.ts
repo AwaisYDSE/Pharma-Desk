@@ -18,10 +18,12 @@ export async function flushOutbox(ctx: Ctx, client: ServerClient): Promise<OpRes
     const ops = await ctx.db.outbox.where('status').equals('pending').limit(50).sortBy('seq');
     if (!ops.length) break;
     const { results } = await client.request<{ results: OpResult[] }>('POST', '/api/ops', { ops: ops.map(stripLocal) }, { session: false });
+    // The server wants this person to log in online first: keep it queued, undo nothing, try again later.
+    const held = results.find(r => r.code === 'NEEDS_LOGIN');
     await ctx.db.transaction('rw', [ctx.db.outbox, ctx.db.meta, ctx.db.batches, ctx.db.invoices], async () => {
       for (const r of results) {
         const op = ops.find(o => o.id === r.id);
-        if (!op) continue;
+        if (!op || r.code === 'NEEDS_LOGIN') continue;
         if (!r.ok) {
           // Undo this op's optimistic stock change locally; the server never applied it.
           for (const d of op.deltas) {
@@ -36,11 +38,13 @@ export async function flushOutbox(ctx: Ctx, client: ServerClient): Promise<OpRes
       }
     });
     for (const r of results) {
+      if (r.code === 'NEEDS_LOGIN') continue;
       all.push(r);
       if (!r.ok) emit(ctx, 'op-rejected', r);
       if (r.conflicts?.length && r.ok) emit(ctx, 'stock-conflict', r);
       if (r.reallocations?.length) emit(ctx, 'fefo-reallocated', r);
     }
+    if (held) { emit(ctx, 'needs-login', held.message); break; }
     if (results.length < ops.length) break;
   }
   return all;

@@ -10,7 +10,7 @@
     "typecheck": "tsc -p ."
   },
   "author": "Awais Amin",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
     "@types/express": "^5.0.6",

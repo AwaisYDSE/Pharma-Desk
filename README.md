@@ -31,7 +31,7 @@ stays on its own PC.
 
 | | |
 |---|---|
-| **Point of Sale** | Keyboard-first billing (`F2` search, `F8` checkout, `F4` patient, `F6` prescription reader, `F9` reprint), typo-tolerant search ("panadool" → Panadol), USB barcode scanners and phone-camera scanning, GST (inclusive or exclusive), discounts, cash / card / JazzCash / credit (udhaar). Animated patient avatar that reacts to the bill. |
+| **Point of Sale** | Keyboard-first billing (`F2` search, `F8` checkout, `F4` patient, `F6` prescription reader, `F9` reprint), typo-tolerant search ("panadool" → Panadol), USB barcode scanners and phone-camera scanning, GST (inclusive or exclusive), discounts, cash / card / JazzCash / credit. Animated patient avatar that reacts to the bill. |
 | **Built-in medicine list** | At first setup the owner chooses: start with ~150 common medicines sold in Pakistan (brand, formula, strength, company, what it's for) **or** start empty and write their own. This choice is offered only once — the list can't be imported later. Afterwards, anyone with permission can edit, describe or delete each medicine. |
 | **Photos & logo** | Upload a shop logo (shown on every device and on receipts) and a photo for each user. |
 | **Batches & FEFO** | Every sale takes the batch that expires first, splits across batches automatically, never sells expired stock. Choosing a newer batch needs a supervisor PIN and is logged. |
@@ -114,7 +114,7 @@ npm run build
 npm test
 ```
 
-71 automated tests, including:
+Automated tests, including:
 - **Linked modules** — supplier → purchase → receive → inventory → sale on credit → customer balance → payment → bill returned → stock back, and the shop server matches exactly.
 - **Granular permissions** — create, modify, delete and payments switched separately for items, customers and suppliers; enforced on the device and on the server.
 - **Languages** — every sentence in the code has all four translations; a real browser opens every screen and form in Urdu, Arabic, Hindi and Spanish and fails on any English left; Urdu/Arabic switch right-to-left.

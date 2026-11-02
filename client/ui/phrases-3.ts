@@ -141,7 +141,7 @@ export const P3: Record<string, Tr> = {
   'Remove this device? It will need the Server PIN to connect again.': ['یہ ڈیوائس ہٹائیں؟ دوبارہ جڑنے کے لیے سرور پن چاہیے ہوگا۔', 'إزالة هذا الجهاز؟ سيحتاج رمز الخادم للاتصال مجددًا.', 'यह डिवाइस हटाएँ? दोबारा जुड़ने के लिए सर्वर पिन चाहिए होगा।', '¿Quitar este dispositivo? Necesitará el PIN del servidor para volver a conectarse.'],
   // Permission names
   'Give discounts': ['رعایت دینا', 'منح الخصومات', 'छूट देना', 'Hacer descuentos'],
-  'Credit (udhaar) sales': ['ادھار فروخت', 'البيع الآجل', 'उधार बिक्री', 'Ventas a crédito (fiado)'],
+  'Credit sales': ['ادھار فروخت', 'البيع الآجل', 'क्रेडिट बिक्री', 'Ventas a crédito (crédito)'],
   'Sell a newer batch instead of nearest-expiry': ['قریب الختم بیچ کے بجائے نیا بیچ بیچنا', 'بيع تشغيلة أحدث بدل الأقرب انتهاءً', 'पास की समाप्ति वाले की जगह नया बैच बेचना', 'Vender un lote más nuevo en lugar del que caduca antes'],
   'Sell items at price 0 (free)': ['اشیاء صفر قیمت (مفت) پر بیچنا', 'بيع الأصناف بسعر 0 (مجاناً)', 'चीज़ें 0 कीमत (मुफ़्त) पर बेचना', 'Vender artículos a precio 0 (gratis)'],
   'Sell items not yet in stock': ['سٹاک میں نہ ہونے والی اشیاء بیچنا', 'بيع أصناف غير متوفرة بعد', 'स्टॉक में न होने वाली चीज़ें बेचना', 'Vender artículos sin existencias'],
@@ -163,7 +163,7 @@ export const P3: Record<string, Tr> = {
   'Create customers': ['گاہک بنانا', 'إنشاء الزبائن', 'ग्राहक बनाना', 'Crear clientes'],
   'Modify customers': ['گاہک میں ترمیم', 'تعديل الزبائن', 'ग्राहक बदलना', 'Modificar clientes'],
   'Delete customers': ['گاہک حذف کرنا', 'حذف الزبائن', 'ग्राहक हटाना', 'Eliminar clientes'],
-  'Receive credit (udhaar) payments': ['ادھار کی ادائیگی وصول کرنا', 'استلام دفعات الدين', 'उधार का भुगतान लेना', 'Cobrar pagos de fiado'],
+  'Receive credit payments': ['ادھار کی ادائیگی وصول کرنا', 'استلام دفعات الدين', 'क्रेडिट का भुगतान लेना', 'Cobrar pagos de crédito'],
   'See cost prices & profit': ['قیمتِ خرید اور منافع دیکھنا', 'رؤية أسعار الشراء والربح', 'खरीद मूल्य और मुनाफ़ा देखना', 'Ver precios de compra y ganancia'],
   'Export reports (CSV)': ['رپورٹس ایکسپورٹ کرنا (CSV)', 'تصدير التقارير (CSV)', 'रिपोर्ट एक्सपोर्ट करना (CSV)', 'Exportar informes (CSV)'],
   'Create users': ['صارف بنانا', 'إنشاء المستخدمين', 'उपयोगकर्ता बनाना', 'Crear usuarios'],

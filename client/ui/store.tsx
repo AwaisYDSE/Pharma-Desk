@@ -97,11 +97,13 @@ export function AppProvider({ children, onReady }: { children: (s: Store | null)
           }
         }
       } catch { /* opened from GitHub Pages or a phone */ }
+      let lastNeedsLogin = 0;
       ctx.listeners.add((ev, data) => {
         if (ev === 'online') setOnline(!!data);
         if (['data-changed', 'sale', 'stock-changed', 'users-changed', 'printed', 'auth-changed'].includes(ev)) setVersion(v => v + 1);
         if (ev === 'fefo-reallocated') toast('warn', 'FEFO', 'A batch had run out on another counter; the sale was moved to the next earliest-expiring batch.');
         if (ev === 'stock-conflict') toast('warn', 'Stock mismatch', 'More was sold offline than was in stock. Please count the shelf and receive stock.');
+        if (ev === 'needs-login' && Date.now() - lastNeedsLogin > 5 * 60_000) { lastNeedsLogin = Date.now(); toast('warn', 'Please log in again', 'Please log out and log in again so your changes can be sent to the server.'); }
         if (ev === 'op-rejected') toast('bad', 'Not saved on server', String((data as { message?: string })?.message || ''));
         if (ev === 'print-error') toast('warn', 'Printer offline', 'The receipt is queued and will print when the printer is back. You can also download it.');
         if (ev === 'unpaired') { sync.stop(); toast('bad', 'Disconnected', 'This device was removed from the shop. Its copy of the shop data has been erased.'); void ctx.db.delete().catch(() => {}).finally(() => setTimeout(() => location.reload(), 1500)); }

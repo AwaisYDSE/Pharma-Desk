@@ -12,7 +12,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
   { key: 'pos', label: 'Point of Sale', actions: [
     { key: 'pos.discount', label: 'Give discounts' },
     { key: 'pos.price', label: 'Change the selling price at the counter' },
-    { key: 'pos.credit_sale', label: 'Credit (udhaar) sales' },
+    { key: 'pos.credit_sale', label: 'Credit sales' },
     { key: 'pos.override_fefo', label: 'Sell a newer batch instead of nearest-expiry' },
     { key: 'pos.negative_stock', label: 'Sell items not yet in stock' },
     { key: 'pos.zero_price', label: 'Sell items at price 0 (free)' },
@@ -48,7 +48,7 @@ export const PERMISSION_GROUPS: PermGroup[] = [
     { key: 'patients.create', label: 'Create customers' },
     { key: 'patients.edit', label: 'Modify customers' },
     { key: 'patients.delete', label: 'Delete customers' },
-    { key: 'patients.payment', label: 'Receive credit (udhaar) payments' },
+    { key: 'patients.payment', label: 'Receive credit payments' },
     { key: 'patients.rx', label: 'Manage repeat prescriptions' },
   ] },
   { key: 'alerts', label: 'Alerts', actions: [] },

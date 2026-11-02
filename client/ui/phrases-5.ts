@@ -10,7 +10,7 @@ export const P5: Record<string, Tr> = {
   'disabled': ['بند', 'معطّل', 'बंद', 'desactivado'],
   'normal': ['معمول کے مطابق', 'عادي', 'सामान्य', 'normal'],
   'paid': ['ادا شدہ', 'مدفوعة', 'भुगतान हुआ', 'pagada'],
-  'credit': ['ادھار', 'آجلة', 'उधार', 'a crédito'],
+  'credit': ['ادھار', 'آجلة', 'क्रेडिट', 'a crédito'],
   'ordered': ['آرڈر شدہ', 'مطلوب', 'ऑर्डर किया', 'pedido'],
   'received': ['وصول', 'مستلم', 'प्राप्त', 'recibido'],
   'cancelled': ['منسوخ', 'ملغى', 'रद्द', 'cancelado'],

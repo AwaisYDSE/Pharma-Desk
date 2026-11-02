@@ -18,7 +18,7 @@ import {
 import { PO_STEPS, TRANSITIONS, normStatus, statusLabel, stepIndex, isOpen } from '../../../shared/purchase-flow.ts';
 import { voidInvoice, refundItems, returnedQty } from '../../core/pos.ts';
 
-const INV_STATUS: Record<string, [string, string]> = { paid: ['Paid', 'ok'], credit: ['Unpaid (udhaar)', 'warn'], partial_refund: ['Partially refunded', 'info'], refunded: ['Refunded', 'info'], void: ['Cancelled', 'bad'] };
+const INV_STATUS: Record<string, [string, string]> = { paid: ['Paid', 'ok'], credit: ['Unpaid (credit)', 'warn'], partial_refund: ['Partially refunded', 'info'], refunded: ['Refunded', 'info'], void: ['Cancelled', 'bad'] };
 import { MedThumb, MedName } from '../MedIcon.tsx';
 import { receiptData, downloadReceipt } from '../../core/print.ts';
 import { navigate, takeIntent } from '../nav.ts';
@@ -460,7 +460,7 @@ export function Parties({ kind }: { kind: 'suppliers' | 'patients' }) {
         <input className="input" style={{ maxWidth: 280 }} placeholder={`${t('name')} / ${t('phone')}`} value={q} onChange={e => setQ(e.target.value)} />
         {can(user, `${kind}.create`) && <button type="button" className="btn primary" onClick={() => setEdit({ name: q })}><Icon name="plus" /> {kind === 'suppliers' ? 'New supplier' : 'New customer'}</button>}</div>
       <div className="table-wrap">{list.length === 0 ? <Empty icon="users" text="Nothing here yet" /> :
-        <table className="t"><thead><tr><th>{t('name')}</th><th>{t('phone')}</th><th>{kind === 'patients' ? 'Doctor' : 'NTN'}</th><th>{kind === 'suppliers' ? 'We owe' : 'Udhaar'}</th></tr></thead><tbody>
+        <table className="t"><thead><tr><th>{t('name')}</th><th>{t('phone')}</th><th>{kind === 'patients' ? 'Doctor' : 'NTN'}</th><th>{kind === 'suppliers' ? 'We owe' : 'Credit'}</th></tr></thead><tbody>
           {list.map(r => { const bal = balances.get(r.id) || 0; return <tr key={r.id} className="click" onClick={() => setOpenId(r.id)}><td><strong>{r.name}</strong>{'allergies' in r && r.allergies && <span className="badge bad" style={{ marginInlineStart: 8 }}>{r.allergies}</span>}</td><td className="num">{r.phone}</td><td className="muted">{'doctorName' in r ? r.doctorName : (r as Supplier).ntn}</td>
             <td className="num">{bal ? <span className={`badge ${bal > 0 ? 'warn' : 'ok'}`}>{money(bal, lang)}</span> : <span className="faint">—</span>}</td></tr>; })}
         </tbody></table>}</div>
@@ -496,7 +496,7 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
   });
   const tabs: [string, string][] = kind === 'suppliers'
     ? [['purchases', `Purchases (${purchases.length})`], ['items', `Items supplied (${items.length})`], ['ledger', `Account (${ledger.length})`]]
-    : [['bills', `Bills (${bills.length})`], ['rx', `Repeat prescriptions (${rx.length})`], ['ledger', `Udhaar account (${ledger.length})`]];
+    : [['bills', `Bills (${bills.length})`], ['rx', `Repeat prescriptions (${rx.length})`], ['ledger', `Credit account (${ledger.length})`]];
   return (
     <Modal title={party.name} onClose={onClose} wide>
       <div className="col">
@@ -506,7 +506,7 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
           {can(user, `${kind}.edit`) && <button type="button" className="btn sm" onClick={onEdit}>{t('edit')}</button>}
           {can(user, `${kind}.delete`) && <button type="button" className="btn sm danger" onClick={async () => { if (bal !== 0 && !(await confirmAsk({ message: `${party.name} still has a balance of ${money(bal, lang as never)}. Delete anyway?`, danger: true, confirmText: t('delete') }))) return; if (await confirmAsk({ message: `Delete ${party.name}? Their bills and purchases stay in history.`, danger: true, confirmText: t('delete') })) { try { await saveRecord(ctx, kind, { ...party, deleted: true } as never); toast('ok', `${party.name} deleted`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}><Icon name="trash" size={14} /> {t('delete')}</button>}
         </div>
-        <div className="card row"><div className="col" style={{ gap: 0 }}><span className="small muted">{kind === 'suppliers' ? 'We owe this supplier' : 'Udhaar — customer owes'}</span><span className="big num">{money(bal, lang as never)}</span></div><span className="spacer" />
+        <div className="card row"><div className="col" style={{ gap: 0 }}><span className="small muted">{kind === 'suppliers' ? 'We owe this supplier' : 'Credit — customer owes'}</span><span className="big num">{money(bal, lang as never)}</span></div><span className="spacer" />
           {canPay && <form className="row" onSubmit={e => { e.preventDefault(); void pay.run(); }}><input className="input num" style={{ width: 130 }} inputMode="decimal" placeholder="Rs" value={amt} onChange={e => setAmt(e.target.value.replace(/[^\d.]/g, ''))} />
             <button className="btn primary" disabled={!amt || pay.busy}>{kind === 'suppliers' ? 'Pay' : 'Receive payment'}</button>{pay.err && <span className="err">{pay.err}</span>}</form>}</div>
         <Tabs value={tab} onChange={setTab} tabs={tabs} />
@@ -633,7 +633,7 @@ function ReturnItems({ inv, items, onClose }: { inv: Invoice; items: InvoiceItem
   return (
     <Modal title={`Return items — ${inv.number}`} onClose={onClose} wide>
       <div className="col">
-        <span className="small muted">Type how many of each item the customer brings back. The money is given back (or taken off the udhaar balance) and the stock goes back to the same batch.</span>
+        <span className="small muted">Type how many of each item the customer brings back. The money is given back (or taken off the credit balance) and the stock goes back to the same batch.</span>
         <div className="table-wrap"><table className="t"><thead><tr><th>Item</th><th>Sold</th><th>Can return</th><th>{t('qty')}</th><th>{t('amount')}</th></tr></thead><tbody>
           {lines.map(l => <tr key={l.it.id}><td>{l.it.name}<div className="small faint num">{l.it.batchNo}</div></td><td className="num">{l.it.qty}</td><td className="num">{l.left}</td>
             <td><input className="input num" style={{ width: 80, minHeight: 36 }} inputMode="numeric" disabled={l.left <= 0} value={qty[l.it.id] || ''} placeholder="0" onChange={e => setQty({ ...qty, [l.it.id]: String(Math.min(l.left, Number(e.target.value.replace(/\D/g, '')) || 0) || '') })} /></td>

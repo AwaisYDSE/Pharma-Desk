@@ -208,7 +208,7 @@ export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient',
   return entry;
 }
 
-/** Supplier → what we owe them. Patient → what they owe us (udhaar). */
+/** Supplier → what we owe them. Patient → what they owe us (credit). */
 export async function partyBalance(ctx: Ctx, partyType: 'supplier' | 'patient', partyId: string) {
   const rows = await ctx.db.ledger.where('[partyType+partyId]').equals([partyType, partyId]).toArray();
   const credit = rows.reduce((s, r) => s + r.credit, 0), debit = rows.reduce((s, r) => s + r.debit, 0);
