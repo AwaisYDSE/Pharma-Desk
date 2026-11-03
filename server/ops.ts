@@ -11,6 +11,7 @@ import { getRow, allRows, putRow, upsertLWW, nextRev, tx, SQL_TABLE } from './db
 import { HLC, uuid, OutOfStockError, AppError, isoDate } from '../shared/util.ts';
 import { pendingBatchId, isSellable, fefoSort } from '../shared/fefo.ts';
 import { can, rowPerm } from '../shared/permissions.ts';
+import { YEAR_TABLES, dayOfRecord } from '../shared/years.ts';
 import { SYNC_TABLES, type Op, type OpResult, type Batch, type Invoice, type InvoiceItem, type User, type PullResponse, type PullChange, type Synced, type SyncTable, type AuditEntry } from '../shared/types.ts';
 
 export const serverClock = new HLC('server');
@@ -30,8 +31,20 @@ function checkShape(op: Op) {
     if (op.deltas.some(d => d.delta >= 0 || d.create)) refuse('A sale can only take stock out');
     for (const r of op.rows) {
       if (r.tbl !== 'ledger') continue;
-      const l = r.row as { partyType?: string; credit?: number };
-      if (l.partyType !== 'patient' || l.credit) refuse('A sale can only add to what the customer owes');
+      const l = r.row as { partyType?: string; credit?: number; ref?: string; matchDoc?: string };
+      if (l.partyType !== 'patient') refuse('A sale can only add to what the customer owes');
+      if (!l.credit) continue;
+      // Part payment at the counter: only against this bill, and less than it.
+      const inv = op.rows.find(x => x.tbl === 'invoices')?.row as { number?: string; total?: number; payMethod?: string } | undefined;
+      if (l.ref !== 'PAYMENT' || inv?.payMethod !== 'credit' || l.matchDoc !== inv.number || !(l.credit < (inv.total || 0))) refuse('A sale can only add to what the customer owes');
+    }
+  }
+  if (op.kind === 'stock' && tables.includes('purchases')) {
+    // Payment on receipt: only against this bill, and not more than it.
+    const p = op.rows.find(x => x.tbl === 'purchases')?.row as { number?: string; total?: number } | undefined;
+    for (const r of op.rows) {
+      const l = r.row as { ref?: string; debit?: number; matchDoc?: string };
+      if (r.tbl === 'ledger' && l.ref === 'PAYMENT' && (l.matchDoc !== p?.number || (l.debit || 0) > (p?.total || 0))) refuse('A payment on receipt can only settle this bill');
     }
   }
   if (op.kind === 'void' && !allowed(['invoices', 'ledger', 'audit'])) refuse('A void can only change the bill');
@@ -64,7 +77,7 @@ export function salePerms(db: DB, op: Op): string[] {
     if (!(it.unitPrice > 0)) { need.add('pos.zero_price'); continue; }
     const med = getRow<Synced & { salePrice?: number }>(db, 'medicines', it.medicineId);
     const batch = getRow<Batch>(db, 'batches', it.batchId);
-    const bought = allRows<Synced & { salePrice?: number | null }>(db, 'purchaseItems', `WHERE json_extract(data, '$.medicineId') = ?`, it.medicineId).filter(p => !p.deleted);
+    const bought = allRows<Synced & { salePrice?: number | null }>(db, 'purchaseItems', `WHERE medicine_id = ?`, it.medicineId).filter(p => !p.deleted);
     const known = [med?.salePrice, batch?.salePrice, ...bought.map(p => p.salePrice)].filter((p): p is number => !!p && p > 0);
     if (known.length && !known.includes(it.unitPrice)) need.add('pos.price');
   }
@@ -146,6 +159,11 @@ export function neededPerms(db: DB, op: Op): string[] {
       if (r.tbl === 'audit') continue;
       if (r.tbl === 'ledger') { need.add((r.row as { partyType?: string }).partyType === 'supplier' ? 'suppliers.payment' : 'patients.payment'); continue; }
       const before = getRow(db, r.tbl, r.row.id);
+      // Choosing how a bill is paid is a money decision; saving a bill whose plan did not change is not.
+      if (r.tbl === 'purchases') {
+        const plan = (x: unknown) => (x as { payPlan?: { method?: string } | null } | null)?.payPlan;
+        if ((plan(r.row)?.method || 'credit') !== 'credit' && JSON.stringify(plan(r.row)) !== JSON.stringify(plan(before))) need.add('suppliers.payment');
+      }
       if (r.tbl === 'users' && before && onlyLogoutChanged(before as User, r.row as User)) { need.add('users.logout'); continue; }
       const p = rowPerm(r.tbl, before, r.row);
       if (p) need.add(p);
@@ -315,7 +333,7 @@ export function applyOp(db: DB, op: Op): OpResult {
 }
 
 /** Everything that changed after revision `since`, across all tables, in revision order. */
-export function pullChanges(db: DB, since: number, limit = 2000): PullResponse {
+export function pullChanges(db: DB, since: number, limit = 2000, win?: { from: string; to?: string } | null): PullResponse {
   const batch: PullChange[] = [];
   for (const tbl of SYNC_TABLES) {
     const rows = db.prepare(`SELECT id, data, hlc, rev FROM ${SQL_TABLE[tbl]} WHERE rev > ? ORDER BY rev LIMIT ?`).all(since, limit + 1) as
@@ -323,10 +341,24 @@ export function pullChanges(db: DB, since: number, limit = 2000): PullResponse {
     for (const r of rows) batch.push({ tbl: tbl as SyncTable, id: r.id, data: JSON.parse(r.data), hlc: r.hlc, rev: r.rev });
   }
   batch.sort((a, b) => a.rev - b.rev);
-  const changes = batch.slice(0, limit);
+  // Pictures are big: a page also stops at about 8 MB, always carrying at least one change.
+  let bytes = 0, fit = 0;
+  for (const c of batch.slice(0, limit)) { bytes += JSON.stringify(c.data).length; if (fit && bytes > 8_000_000) break; fit++; }
+  const changes = batch.slice(0, fit);
   const head = Number((db.prepare(`SELECT value FROM meta WHERE key = 'rev'`).get() as { value: string }).value);
   const rev = changes.length ? changes[changes.length - 1].rev : Math.max(since, changes.length ? 0 : head);
-  return { changes, rev, more: batch.length > limit };
+  if (!win) return { changes, rev, more: batch.length > fit };
+  // One financial year at a time: the page still moves on past other years' records, but does not carry them.
+  const parents = new Map<string, Record<string, unknown> | null>();
+  const parent = (t: string, id: string) => { const k = `${t}:${id}`; if (!parents.has(k)) parents.set(k, getRow(db, t as SyncTable, id) as never); return parents.get(k)!; };
+  let older = false;
+  const kept = changes.filter(c => {
+    const day = (YEAR_TABLES as readonly string[]).includes(c.tbl) ? dayOfRecord(c.tbl, c.data as never, parent) : null;
+    if (!day) return true;
+    if (day < win.from) { older = true; return false; }
+    return !win.to || day <= win.to;
+  });
+  return { changes: kept, rev, more: batch.length > fit, older };
 }
 
 export { nextRev };

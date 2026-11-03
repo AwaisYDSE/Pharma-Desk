@@ -4,7 +4,7 @@
 // © Awais Amin
 import Dexie, { type Table } from 'dexie';
 import type { Op, Synced, SyncTable, User, Medicine, Batch, Supplier, Patient, Prescription, Invoice, InvoiceItem, Purchase, PurchaseItem, LedgerEntry, AuditEntry, Shop, Expense, Refund } from '../../shared/types.ts';
-import { HLC, uuid } from '../../shared/util.ts';
+import { AppError, HLC, uuid } from '../../shared/util.ts';
 import { billing, formatBillNumber } from '../../shared/region.ts';
 
 export interface MetaRow { key: string; value: unknown }
@@ -56,6 +56,7 @@ export class PharmaDB extends Dexie {
     this.version(3).stores({ expenses: 'id, date, category', refunds: 'id, invoiceId, date', purchaseItems: 'id, purchaseId, medicineId' });
     this.version(4).stores({ closings: 'id, date' });
     this.version(5).stores({ moneyMoves: 'id, date' });
+    this.version(6).stores({ invoices: 'id, number, createdAt, cashierId, status, patientId, hlc', attachments: 'id, docId' });
   }
   tbl(name: SyncTable) { return this.table(name) as Table<Synced, string>; }
 }
@@ -76,6 +77,10 @@ export interface Ctx {
   pairing: Pairing | null;
   /** "This device only" mode: the shop runs entirely on this device, no server PC. */
   standalone: boolean;
+  /** An older financial year is open on this device: for looking only. */
+  olderYear?: boolean;
+  /** A day inside that older year. */
+  yearView?: string | null;
   user: User | null;
   sessionId: string | null;      // server session (null while offline)
   localSessionId: string | null; // always set while logged in
@@ -93,7 +98,7 @@ export async function openCtx(opts: { name?: string; fetch?: typeof fetch } = {}
   const hlc = new HLC(deviceId.slice(0, 8));
   hlc.receive(await getMeta<string | null>(db, 'lastHlc', null));
   return {
-    db, hlc, deviceId, pairing, standalone: !pairing && await getMeta<boolean>(db, 'standalone', false), user: null, sessionId: null, localSessionId: null, online: false,
+    db, hlc, deviceId, pairing, standalone: !pairing && await getMeta<boolean>(db, 'standalone', false), olderYear: !!(await getMeta<string | null>(db, 'yearView', null)), yearView: await getMeta<string | null>(db, 'yearView', null), user: null, sessionId: null, localSessionId: null, online: false,
     listeners: new Set(), fetch: opts.fetch || globalThis.fetch.bind(globalThis),
   };
 }
@@ -109,6 +114,7 @@ export function stamp(ctx: Ctx) {
 
 /** Queue an operation in the SAME transaction as the local write (crash-safe). */
 export async function enqueue(ctx: Ctx, op: Omit<Op, 'id' | 'deviceId' | 'userId' | 'createdAt' | 'status' | 'attempts'> & { id?: string }) {
+  if (ctx.olderYear && op.rows.some(r => r.tbl !== 'audit')) throw new AppError('OLDER_YEAR', 'You are looking at an older year. Switch to the current year to make changes.');
   const full: Op = {
     id: op.id || uuid(), deviceId: ctx.deviceId, userId: ctx.user?.id ?? null, createdAt: new Date().toISOString(),
     status: 'pending', attempts: 0, lastError: null, ...op,

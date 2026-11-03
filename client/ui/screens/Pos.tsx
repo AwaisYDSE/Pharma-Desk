@@ -1,6 +1,7 @@
 // Keyboard-first billing: F2 search · ↑↓ Enter add · F4 patient · F6 prescription reader (AI)
 // F8 checkout · F9 reprint last · Esc clear search. USB barcode scanners work anywhere on this screen.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { JournalOptions, journalChoice } from './Pay.tsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore, useLive } from '../store.tsx';
 import { MedThumb, MedName } from '../MedIcon.tsx';
@@ -31,6 +32,8 @@ export function Pos() {
   const accounts = (s.shop?.payAccounts || []).filter(a => a.active);
   const account = pay.startsWith('acc:') ? accounts.find(a => a.id === pay.slice(4)) : undefined;
   const [received, setReceived] = useState('');
+  const [partAmt, setPartAmt] = useState('');
+  const [partBy, setPartBy] = useState('cash');
   const [discPct, setDiscPct] = useState('');
   const [warnings, setWarnings] = useState<InteractionWarning[]>([]);
   const [modal, setModal] = useState<null | 'patient' | 'rx' | 'batch' | { sup: string; then: (id: string) => void }>(null);
@@ -102,9 +105,10 @@ export function Pos() {
     cart.billDiscount = pct > 0 ? Math.round(totals({ ...cart, billDiscount: 0 }).total * pct / 100) : 0;
     const total = totals(cart).total;
     const paid = pay === 'credit' ? 0 : (pay === 'cash' && received ? toPaisa(received) : total);
+    const partJ = pay === 'credit' && partAmt ? journalChoice(partBy, accounts) : null;
     setBusy(true);
     try {
-      const r = await checkout(ctx, cart, account ? { method: account.type, paid, accountId: account.id, accountName: `${account.provider} · ${account.title}`, payRef: payRef.trim() || null } : { method: pay as 'cash' | 'card' | 'credit', paid }, client, { supervisorId });
+      const r = await checkout(ctx, cart, partJ ? { method: 'credit', paid: 0, part: { amount: toPaisa(partAmt), ...partJ } } : account ? { method: account.type, paid, accountId: account.id, accountName: `${account.provider} · ${account.title}`, payRef: payRef.trim() || null } : { method: pay as 'cash' | 'card' | 'credit', paid }, client, { supervisorId });
       setLastInvoice(r.invoice.id);
       say('party', lang === 'ur' ? 'شکریہ! آپ کا بل تیار ہے' : `Thank you! Change: ${money(r.invoice.change, lang)}`);
       toast('ok', `${t('saleDone')} · ${r.invoice.number}`, r.offline ? 'Saved on this device — will sync when the server is back.' : money(r.invoice.total, lang));
@@ -115,7 +119,7 @@ export function Pos() {
           .then(async x => { if (x.fbrNumber) await s.sync.syncNow().catch(() => {}); else if (x.error) toast('warn', 'FBR', `${x.error} — it will be reported again automatically.`); })
           .catch(() => {}).finally(printIt);
       } else printIt();
-      setCart(newCart(settings.pricesIncludeGst)); setReceived(''); setDiscPct(''); setPay('cash'); setPayRef('');
+      setCart(newCart(settings.pricesIncludeGst)); setReceived(''); setPartAmt(''); setDiscPct(''); setPay('cash'); setPayRef('');
       setTimeout(() => say('idle', ''), 2500);
     } catch (e) {
       const err = e as { code?: string; message: string; details?: { permission?: string } };
@@ -287,6 +291,14 @@ export function Pos() {
           </div>
           {accounts.length > 0 && <div className="row" style={{ gap: 6 }}>{accounts.map(a => <button type="button" key={a.id} className={`btn sm ${pay === 'acc:' + a.id ? 'on' : ''}`} onClick={() => setPay('acc:' + a.id)}>{a.provider}</button>)}</div>}
           {account && <div className="pay-to"><strong>{`${account.provider} · ${account.title}`}</strong><span dir="ltr">{account.number}</span><input className="input" aria-label="Reference number" placeholder={t('Reference number')} value={payRef} onChange={e => setPayRef(e.target.value)} /></div>}
+          {pay === 'credit' && <div className="col" style={{ gap: 6 }}>
+            <div className="form-grid two">
+              <label className="field">Amount paid now<input className="input num" inputMode="decimal" placeholder="0.00" value={partAmt} onChange={e => setPartAmt(e.target.value.replace(/[^\d.]/g, ''))} /></label>
+              <label className="field">Journal<select className="input" value={partBy} onChange={e => setPartBy(e.target.value)}><JournalOptions accounts={accounts} /></select></label>
+            </div>
+            <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setPartAmt(String(Math.round(Math.round(tot.total * (1 - Number(discPct || 0) / 100)) / 2) / 100))}>Half</button>
+            {partAmt && <div className="total-line"><span className="muted">Amount Due</span><strong className="num">{money(Math.max(0, Math.round(tot.total * (1 - Number(discPct || 0) / 100)) - toPaisa(partAmt)), lang)}</strong></div>}
+          </div>}
           {pay === 'cash' && <label className="field">{t('received')}<input className="input num" inputMode="decimal" value={received} onChange={e => setReceived(e.target.value.replace(/[^\d.]/g, ''))} placeholder={String(tot.total / 100)} /></label>}
           {pay === 'cash' && received && <div className="total-line"><span className="muted">{t('change')}</span><strong className="num" style={{ color: 'var(--ok)' }}>{money(Math.max(0, toPaisa(received) - Math.round(tot.total * (1 - Number(discPct || 0) / 100))), lang)}</strong></div>}
           <button type="button" className="btn primary" style={{ minHeight: 56, fontSize: 16 }} disabled={!cart.lines.length || busy} onClick={() => doCheckout()}>

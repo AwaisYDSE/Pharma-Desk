@@ -48,7 +48,7 @@ describe('New screens', () => {
   it('accounts tabs all open', async () => {
     await go('accounts');
     await shot('accounts');
-    for (const t of ['Statements', 'Cash book', 'Who owes what', 'Business position']) { await clickTab(t); await shot('books-' + t.replace(/ /g, '-')); }
+    for (const t of ['Partner Ledger', 'General Ledger', 'Trial Balance', 'Aged Partner Balance', 'Balance Sheet', 'Statements', 'Cash book']) { await clickTab(t); await shot('books-' + t.replace(/ /g, '-')); }
     expect(errors).toEqual([]);
   }, 30000);
 

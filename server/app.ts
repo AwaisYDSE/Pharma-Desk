@@ -11,6 +11,7 @@ import {
   rotatePin, resetPairings, renameServer, blockedToday, type DeviceClaims,
 } from './identity.ts';
 import { applyOp, pullChanges, serverClock } from './ops.ts';
+import { firstDay, yearCarry } from './years.ts';
 import { builtinCatalog } from './catalog.ts';
 import * as sup from './supervision.ts';
 import * as ai from './ai.ts';
@@ -297,8 +298,12 @@ export function createApp(db: DB, opts: AppOptions = {}) {
       const shop = db.prepare(`SELECT id, data, hlc, rev FROM shop`).get() as { id: string; data: string; hlc: string; rev: number } | undefined;
       return { changes: shop ? [{ tbl: 'shop', id: shop.id, data: JSON.parse(shop.data), hlc: shop.hlc, rev: shop.rev }] : [], rev: since, more: false };
     }
-    return pullChanges(db, since, Math.min(5000, Number(req.query.limit || 2000)));
+    const isDay = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const win = isDay(req.query.from) ? { from: req.query.from, to: isDay(req.query.to) ? req.query.to : undefined } : null;
+    return pullChanges(db, since, Math.min(5000, Number(req.query.limit || 2000)), win);
   }));
+  app.get('/api/books/first', wrap(() => ({ firstDay: firstDay(db) })));
+  app.get('/api/books/carry', wrap(req => yearCarry(db, String(req.query.from || '0000-01-01'))));
 
   /* ---------- branches ---------- */
   const fromBranch = (req: Req) => { if ((db.prepare(`SELECT platform FROM paired_devices WHERE id = ?`).get(req.device!.did) as { platform?: string } | undefined)?.platform !== 'branch') throw new AppError('FORBIDDEN', 'Only a branch server can do this'); };

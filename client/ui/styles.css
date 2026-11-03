@@ -306,3 +306,6 @@ h1 { letter-spacing: -.02em; }
 .badge { font-weight: 700; }
 .pay-to { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--accentSoft); }
 @media (max-width: 900px) { .tip-slide { inset-inline-start: 16px; bottom: 84px; } }
+
+/* Partner Ledger, General Ledger, Trial Balance */
+.t.ledger .ledger-group td { background: color-mix(in srgb, var(--line) 40%, transparent); }

@@ -3,7 +3,7 @@
 import { uuid, isoDate, AppError, PermissionError } from '../../shared/util.ts';
 import { pendingBatchId } from '../../shared/fefo.ts';
 import { can, rowPerm } from '../../shared/permissions.ts';
-import type { Medicine, Batch, Purchase, PurchaseItem, LedgerEntry, SyncTable, Synced, Delta, OpRow, PurchaseStatus, Expense } from '../../shared/types.ts';
+import type { Attachment, Medicine, Batch, Purchase, PurchaseItem, LedgerEntry, SyncTable, Synced, Delta, OpRow, PurchaseStatus, Expense } from '../../shared/types.ts';
 import { TRANSITIONS, normStatus, canMove } from '../../shared/purchase-flow.ts';
 import { stamp, emit, nextNumber, type Ctx } from './db.ts';
 import { makeOp, enqueue } from './outbox.ts';
@@ -172,8 +172,13 @@ export async function receivePurchase(ctx: Ctx, purchaseId: string) {
     await db.purchases.put(rp);
     const entry: LedgerEntry = { id: uuid(), partyType: 'supplier', partyId: p.supplierId, date: isoDate(), debit: 0, credit: p.total, ref: p.number, note: 'Purchase bill', hlc: stamp(ctx) };
     await db.ledger.put(entry);
-    const a = await logAuditRow(ctx, 'purchase.receive', { entity: 'purchases', entityId: p.id, details: { number: p.number, lines: items.length, total: p.total } });
-    await enqueue(ctx, makeOp(ctx, 'stock', [{ tbl: 'purchases', row: rp }, ...priceRows, { tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }], deltas));
+    // Paid in cash, by bank, or part paid: the money leaves now and is matched against this bill.
+    const plan = p.payPlan;
+    const payNow = plan && plan.method !== 'credit' ? Math.min(p.total, plan.amount ?? p.total) : 0;
+    const paidRow: LedgerEntry | null = payNow > 0 ? { id: uuid(), partyType: 'supplier', partyId: p.supplierId, date: isoDate(), debit: payNow, credit: 0, ref: 'PAYMENT', note: 'Paid on receipt', method: plan!.method as 'cash' | 'bank' | 'wallet', accountId: plan!.accountId ?? null, accountName: plan!.accountName ?? null, matchDoc: p.number, hlc: stamp(ctx) } : null;
+    if (paidRow) await db.ledger.put(paidRow);
+    const a = await logAuditRow(ctx, 'purchase.receive', { entity: 'purchases', entityId: p.id, details: { number: p.number, lines: items.length, total: p.total, paid: payNow } });
+    await enqueue(ctx, makeOp(ctx, 'stock', [{ tbl: 'purchases', row: rp }, ...priceRows, { tbl: 'ledger', row: entry }, ...(paidRow ? [{ tbl: 'ledger' as const, row: paidRow }] : []), { tbl: 'audit', row: a }], deltas));
   });
   emit(ctx, 'stock-changed');
   return created;
@@ -193,11 +198,18 @@ export async function addOpeningStock(ctx: Ctx, medicineId: string, b: { batchNo
   return batch;
 }
 
-export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient', partyId: string, amount: number, note = '', method: 'cash' | 'bank' | 'wallet' = 'cash', account?: { id: string; name: string } | null) {
+export type { Attachment };
+/** Saves a picture of a purchase bill or expense receipt. Works after the record is saved or received too. */
+export const addPicture = (ctx: Ctx, docType: Attachment['docType'], docId: string, data: string) =>
+  saveRecord<Attachment>(ctx, 'attachments', { docType, docId, data, at: new Date().toISOString(), userName: ctx.user?.name || null });
+export const removePicture = (ctx: Ctx, a: Attachment) => saveRecord<Attachment>(ctx, 'attachments', { ...a, data: '', deleted: true } as never);
+
+export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient', partyId: string, amount: number, note = '', method: 'cash' | 'bank' | 'wallet' = 'cash', account?: { id: string; name: string } | null, match?: { doc?: string | null; date?: string }) {
   if (!can(ctx.user, partyType === 'supplier' ? 'suppliers.payment' : 'patients.payment')) throw new PermissionError();
+  if (!Number.isInteger(amount) || amount <= 0) throw new AppError('INVALID', 'Enter an amount above 0');
   const db = ctx.db;
   const entry: LedgerEntry = {
-    id: uuid(), partyType, partyId, date: isoDate(), ref: 'PAYMENT', note, method, accountId: account?.id ?? null, accountName: account?.name ?? null, hlc: stamp(ctx),
+    id: uuid(), partyType, partyId, date: match?.date || isoDate(), ref: 'PAYMENT', note, method, accountId: account?.id ?? null, accountName: account?.name ?? null, matchDoc: match?.doc ?? null, hlc: stamp(ctx),
     debit: partyType === 'supplier' ? amount : 0, credit: partyType === 'patient' ? amount : 0,
   };
   await db.transaction('rw', db.ledger, db.outbox, db.audit, async () => {
@@ -205,6 +217,7 @@ export async function recordPayment(ctx: Ctx, partyType: 'supplier' | 'patient',
     const a = await logAuditRow(ctx, 'ledger.payment', { entity: partyType, entityId: partyId, details: { amount } });
     await enqueue(ctx, makeOp(ctx, 'upsert', [{ tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }]));
   });
+  emit(ctx, 'data-changed', { tbl: 'ledger' });
   return entry;
 }
 
@@ -226,6 +239,7 @@ export async function setOpeningBalance(ctx: Ctx, partyType: 'supplier' | 'patie
     const a = await logAuditRow(ctx, 'ledger.opening', { entity: partyType, entityId: partyId, details: { amount } });
     await enqueue(ctx, makeOp(ctx, 'upsert', [{ tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }]));
   });
+  emit(ctx, 'data-changed', { tbl: 'ledger' });
   return entry;
 }
 
@@ -237,12 +251,13 @@ export async function returnToSupplier(ctx: Ctx, supplierId: string, batchId: st
   const db = ctx.db;
   const number = await nextNumber(ctx, 'PRET');
   let entry!: LedgerEntry;
-  await db.transaction('rw', db.batches, db.ledger, db.outbox, db.audit, async () => {
+  await db.transaction('rw', [db.batches, db.purchases, db.ledger, db.outbox, db.audit], async () => {
     const b = await db.batches.get(batchId);
     if (!b || b.deleted || b.pending) throw new AppError('NOT_FOUND', 'Batch not found');
     if (b.qty < qty) throw new AppError('NEGATIVE', `Only ${b.qty} in this batch`);
     await db.batches.update(batchId, { qty: b.qty - qty, hlc: stamp(ctx) });
-    entry = { id: uuid(), partyType: 'supplier', partyId: supplierId, date: isoDate(), debit: qty * (b.costPrice || 0), credit: 0, ref: number.startsWith('PRET-') ? number : `PRET-${number}`, note: reason.trim(), hlc: stamp(ctx) };
+    const bill = b.purchaseId ? await db.purchases.get(b.purchaseId) : undefined;
+    entry = { id: uuid(), partyType: 'supplier', partyId: supplierId, date: isoDate(), debit: qty * (b.costPrice || 0), credit: 0, ref: number.startsWith('PRET-') ? number : `PRET-${number}`, note: reason.trim(), matchDoc: bill && bill.supplierId === supplierId ? bill.number : null, hlc: stamp(ctx) };
     await db.ledger.put(entry);
     const a = await logAuditRow(ctx, 'purchase.return', { entity: 'batches', entityId: batchId, details: { batchNo: b.batchNo, qty, reason, supplierId } });
     await enqueue(ctx, makeOp(ctx, 'stock', [{ tbl: 'ledger', row: entry }, { tbl: 'audit', row: a }], [{ batchId, medicineId: b.medicineId, delta: -qty }]));

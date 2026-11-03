@@ -18,7 +18,7 @@ export const SQL_TABLE: Record<SyncTable, string> = {
   medicines: 'medicines', batches: 'batches', suppliers: 'suppliers', patients: 'patients',
   prescriptions: 'prescriptions', invoices: 'invoices', invoiceItems: 'invoice_items',
   purchases: 'purchases', purchaseItems: 'purchase_items', ledger: 'ledger', users: 'users', audit: 'audit', shop: 'shop',
-  expenses: 'expenses', refunds: 'refunds', closings: 'closings', moneyMoves: 'money_moves',
+  expenses: 'expenses', refunds: 'refunds', closings: 'closings', moneyMoves: 'money_moves', attachments: 'attachments',
 };
 
 /** Indexed columns pulled out of each record's JSON (generated columns). */
@@ -31,8 +31,8 @@ const INDEXED: Record<SyncTable, [string, string][]> = {
   invoices: [['number', '$.number'], ['created_at', '$.createdAt'], ['status', '$.status']],
   invoiceItems: [['invoice_id', '$.invoiceId'], ['medicine_id', '$.medicineId']],
   purchases: [['number', '$.number'], ['supplier_id', '$.supplierId']],
-  purchaseItems: [['purchase_id', '$.purchaseId']],
-  ledger: [['party_id', '$.partyId']],
+  purchaseItems: [['purchase_id', '$.purchaseId'], ['medicine_id', '$.medicineId']],
+  ledger: [['party_id', '$.partyId'], ['date', '$.date']],
   users: [['username', '$.username'], ['email', '$.email']],
   audit: [['at', '$.at'], ['action', '$.action']],
   shop: [],
@@ -40,6 +40,7 @@ const INDEXED: Record<SyncTable, [string, string][]> = {
   refunds: [['invoice_id', '$.invoiceId'], ['date', '$.date']],
   closings: [['date', '$.date']],
   moneyMoves: [['date', '$.date']],
+  attachments: [['doc_id', '$.docId']],
 };
 
 export function openDb(file: string): DB {
@@ -79,6 +80,9 @@ function migrate(db: DB) {
       id TEXT PRIMARY KEY, data TEXT NOT NULL, hlc TEXT NOT NULL DEFAULT '', rev INTEGER NOT NULL,
       deleted INTEGER NOT NULL DEFAULT 0${gen});
       CREATE INDEX IF NOT EXISTS ${name}_rev ON ${name}(rev);`);
+    // A column added in a later version: real shops already have the table without it.
+    const have = new Set((db.prepare(`PRAGMA table_xinfo(${name})`).all() as { name: string }[]).map(c => c.name));
+    for (const [col, p] of INDEXED[t]) if (!have.has(col)) db.exec(`ALTER TABLE ${name} ADD COLUMN ${col} TEXT GENERATED ALWAYS AS (json_extract(data, '${p}')) VIRTUAL`);
     for (const [col] of INDEXED[t]) db.exec(`CREATE INDEX IF NOT EXISTS ${name}_${col} ON ${name}(${col});`);
   }
   db.prepare(`INSERT OR IGNORE INTO meta(key, value) VALUES ('rev', '0'), ('schema', '1')`).run();
