@@ -1,7 +1,7 @@
 // Every change that must reach the shop server is queued here INSIDE the same
 // IndexedDB transaction as the change itself — so a crash can never leave a sale
 // saved on the device but missing from the sync queue (or the other way round).
-import { uuid } from '../../shared/util.ts';
+import { AppError, uuid } from '../../shared/util.ts';
 import { logAuditRow } from './audit.ts';
 import type { Ctx } from './db.ts';
 import type { Op, OpRow, Delta } from '../../shared/types.ts';
@@ -15,6 +15,7 @@ export function makeOp(ctx: Ctx, kind: Op['kind'], rows: OpRow[], deltas: Delta[
 
 /** Queue an op (call inside a transaction that includes db.outbox). */
 export async function enqueue(ctx: Ctx, op: Op) {
+  if (ctx.olderYear && op.rows.some(r => r.tbl !== 'audit')) throw new AppError('OLDER_YEAR', 'You are looking at an older year. Switch to the current year to make changes.');
   if (ctx.standalone) return op; // "this device only": nothing to sync
   await ctx.db.outbox.add(op);
   return op;

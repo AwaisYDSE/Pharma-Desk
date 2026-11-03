@@ -11,6 +11,7 @@ import { getRow, allRows, putRow, upsertLWW, nextRev, tx, SQL_TABLE } from './db
 import { HLC, uuid, OutOfStockError, AppError, isoDate } from '../shared/util.ts';
 import { pendingBatchId, isSellable, fefoSort } from '../shared/fefo.ts';
 import { can, rowPerm } from '../shared/permissions.ts';
+import { YEAR_TABLES, dayOfRecord } from '../shared/years.ts';
 import { SYNC_TABLES, type Op, type OpResult, type Batch, type Invoice, type InvoiceItem, type User, type PullResponse, type PullChange, type Synced, type SyncTable, type AuditEntry } from '../shared/types.ts';
 
 export const serverClock = new HLC('server');
@@ -332,7 +333,7 @@ export function applyOp(db: DB, op: Op): OpResult {
 }
 
 /** Everything that changed after revision `since`, across all tables, in revision order. */
-export function pullChanges(db: DB, since: number, limit = 2000): PullResponse {
+export function pullChanges(db: DB, since: number, limit = 2000, win?: { from: string; to?: string } | null): PullResponse {
   const batch: PullChange[] = [];
   for (const tbl of SYNC_TABLES) {
     const rows = db.prepare(`SELECT id, data, hlc, rev FROM ${SQL_TABLE[tbl]} WHERE rev > ? ORDER BY rev LIMIT ?`).all(since, limit + 1) as
@@ -346,7 +347,18 @@ export function pullChanges(db: DB, since: number, limit = 2000): PullResponse {
   const changes = batch.slice(0, fit);
   const head = Number((db.prepare(`SELECT value FROM meta WHERE key = 'rev'`).get() as { value: string }).value);
   const rev = changes.length ? changes[changes.length - 1].rev : Math.max(since, changes.length ? 0 : head);
-  return { changes, rev, more: batch.length > fit };
+  if (!win) return { changes, rev, more: batch.length > fit };
+  // One financial year at a time: the page still moves on past other years' records, but does not carry them.
+  const parents = new Map<string, Record<string, unknown> | null>();
+  const parent = (t: string, id: string) => { const k = `${t}:${id}`; if (!parents.has(k)) parents.set(k, getRow(db, t as SyncTable, id) as never); return parents.get(k)!; };
+  let older = false;
+  const kept = changes.filter(c => {
+    const day = (YEAR_TABLES as readonly string[]).includes(c.tbl) ? dayOfRecord(c.tbl, c.data as never, parent) : null;
+    if (!day) return true;
+    if (day < win.from) { older = true; return false; }
+    return !win.to || day <= win.to;
+  });
+  return { changes: kept, rev, more: batch.length > fit, older };
 }
 
 export { nextRev };

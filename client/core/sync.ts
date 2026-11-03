@@ -9,7 +9,9 @@ import type { Ctx, Pairing } from './db.ts';
 import { getMeta, setMeta, emit } from './db.ts';
 import type { Op, OpResult, PullResponse, Synced, SyncTable } from '../../shared/types.ts';
 import { readBeacon, mergeUrls } from './beacon.ts';
-import { NetworkError, AppError, PIN_MISMATCH_MESSAGE } from '../../shared/util.ts';
+import { NetworkError, AppError, PIN_MISMATCH_MESSAGE, isoDate } from '../../shared/util.ts';
+import { applyWindow, saveCarry } from './years.ts';
+import type { YearCarry } from '../../shared/years.ts';
 
 /** Sends every pending change to the server, oldest first. Used by sync and before an online sale. */
 export async function flushOutbox(ctx: Ctx, client: ServerClient): Promise<OpResult[]> {
@@ -162,10 +164,15 @@ export class SyncEngine {
 
   /** Downloads all changes since the last pull into the local replica. */
   async pull(): Promise<number> {
+    const { window: win, changed } = await applyWindow(this.ctx);
+    const today = isoDate();
+    const span = win ? `&from=${win.from}${win.to < today ? `&to=${win.to}` : ''}` : '';
     let since = await getMeta<number>(this.ctx.db, 'rev', 0);
     let total = 0;
+    let needCarry = !!win && (changed || !(await getMeta<unknown>(this.ctx.db, 'carry', null)));
     for (;;) {
-      const r = await this.client.request<PullResponse>('GET', `/api/pull?since=${since}&limit=2000`, undefined, { session: false });
+      const r = await this.client.request<PullResponse>('GET', `/api/pull?since=${since}&limit=2000${span}`, undefined, { session: false });
+      if (r.older) needCarry = true;
       if (r.changes.length) {
         const pend = await pendingDeltas(this.ctx);
         const pendingRows = new Set<string>();
@@ -190,6 +197,7 @@ export class SyncEngine {
       since = r.rev;
       if (!r.more) break;
     }
+    if (win && needCarry) await saveCarry(this.ctx, win.from, await this.client.request<YearCarry>('GET', `/api/books/carry?from=${win.from}`, undefined, { session: false }));
     if (total) emit(this.ctx, 'data-changed', { pulled: total });
     await setMeta(this.ctx.db, 'lastSync', new Date().toISOString());
     return total;

@@ -6,6 +6,7 @@ import type { Ctx } from './db.ts';
 import { stamp, enqueue, nextNumber, nextBillNumber, emit } from './db.ts';
 import type { ServerClient } from './sync.ts';
 import { flushOutbox } from './sync.ts';
+import { assertCurrentYear } from './years.ts';
 import { allocateFEFO, pendingBatchId, isSellable, fefoSort } from '../../shared/fefo.ts';
 import { invoiceTotals } from '../../shared/money.ts';
 import { can } from '../../shared/permissions.ts';
@@ -152,6 +153,7 @@ export interface Payment {
 export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: ServerClient | null, opts: { supervisorId?: string } = {}): Promise<{ invoice: Invoice; offline: boolean; result?: OpResult }> {
   if (!ctx.user || !can(ctx.user, 'pos')) throw new PermissionError();
   if (!cart.lines.length) throw new AppError('EMPTY', 'The bill is empty');
+  assertCurrentYear(ctx);
   const shopRow = await ctx.db.shop.get('shop');
   if (shopRow?.planLock) throw new AppError('LICENSE_LOCKED', shopRow.planLock.status === 'cancelled' ? 'This licence was cancelled, so billing is off. Please contact the developer.' : shopRow.planLock.status === 'suspended' ? 'The plan is paused, so billing is off. Please contact the developer.' : 'The plan has ended, so billing is off. Please renew.');
   const t = totals(cart);

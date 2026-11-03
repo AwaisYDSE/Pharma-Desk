@@ -22,6 +22,7 @@ import { PO_STEPS, TRANSITIONS, normStatus, statusLabel, stepIndex, isOpen } fro
 import { voidInvoice, refundItems, returnedQty } from '../../core/pos.ts';
 import { addPicture } from '../../core/inventory.ts';
 import { PayStateBadge, PaymentSummary, RegisterPayment, Pictures, JournalOptions, journalChoice, usePayAccounts, useInvoiceMatches } from './Pay.tsx';
+import { useOpenYear } from './useYear.ts';
 import { billMatches, vendorRefs, type DocMatch } from '../../../shared/ledger.ts';
 
 const INV_STATUS: Record<string, [string, string]> = { paid: ['Paid', 'ok'], credit: ['Unpaid (credit)', 'warn'], partial_refund: ['Partially refunded', 'info'], refunded: ['Refunded', 'info'], void: ['Cancelled', 'bad'] };
@@ -578,7 +579,8 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
 /* ======================= BILLS / INVOICES ======================= */
 export function Invoices() {
   const { ctx, t, lang, user } = useStore();
-  const [day, setDay] = useState(isoDate());
+  const openYear = useOpenYear();
+  const [day, setDay] = useState(openYear?.to || isoDate());
   const [openId, setOpenId] = useState<string | null>(null);
   useEffect(() => { const i = takeIntent('invoices'); if (i && 'open' in i) setOpenId(i.id); }, []);
   const all = useLive(() => ctx.db.invoices.where('createdAt').between(day, addDays(day, 1)).reverse().toArray(), [day], [] as (Invoice & { rejected?: string })[]);

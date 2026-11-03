@@ -12,6 +12,7 @@ import { money } from '../i18n.ts';
 import { can } from '../../../shared/permissions.ts';
 import { isoDate } from '../../../shared/util.ts';
 import { presetRange } from '../../../shared/accounting.ts';
+import { useOpenYear, useCarry } from './useYear.ts';
 import { statement, moneyBook, agedBalances, businessPosition, groupEntries, accountBalances, type EntryKind, type Method, type BooksData, type GroupBy } from '../../../shared/books.ts';
 
 const KIND: Record<EntryKind, [string, string]> = {
@@ -49,7 +50,8 @@ function Dates({ from, to, set }: { from: string; to: string; set: (r: { from: s
 function Statements({ data }: { data: BooksData }) {
   const { lang, t, user, shop, ctx } = useStore();
   const today = isoDate();
-  const [range, setRange] = useState(() => { const r = presetRange('month', today); return { from: r.from, to: r.to }; });
+  const openYear = useOpenYear();
+  const [range, setRange] = useState(() => { if (openYear) return { from: openYear.from, to: openYear.to }; const r = presetRange('month', today); return { from: r.from, to: r.to }; });
   const [side, setSide] = useState<'all' | 'sales' | 'purchases'>('all');
   const [method, setMethod] = useState<'all' | Method>('all');
   const [party, setParty] = useState('');
@@ -102,7 +104,8 @@ function Statements({ data }: { data: BooksData }) {
 function CloseDay({ data }: { data: BooksData }) {
   const { ctx, lang, user, shop, toast } = useStore();
   const today = isoDate();
-  const expected = moneyBook(data, 'cash', today, today, shop?.openingCash || 0).closing;
+  const carried = useCarry()?.money;
+  const expected = moneyBook(data, 'cash', today, today, (shop?.openingCash || 0) + (carried?.cash || 0)).closing;
   const [counted, setCounted] = useState(''), [note, setNote] = useState('');
   const list = useLive(async () => (await ctx.db.table('closings').toArray() as CashClosing[]).filter(c => !c.deleted).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 14), [], [] as CashClosing[]);
   const save = useAsync(async () => {
@@ -166,10 +169,12 @@ function Opening({ data }: { data: BooksData }) {
 function CashBook({ data }: { data: BooksData }) {
   const { lang, t, user, shop } = useStore();
   const today = isoDate();
-  const [range, setRange] = useState(() => { const r = presetRange('month', today); return { from: r.from, to: r.to }; });
+  const openYear = useOpenYear();
+  const carried = useCarry()?.money;
+  const [range, setRange] = useState(() => { if (openYear) return { from: openYear.from, to: openYear.to }; const r = presetRange('month', today); return { from: r.from, to: r.to }; });
   const [book, setBook] = useState<string>('cash');
   const named = shop?.payAccounts || [];
-  const start = book === 'cash' ? shop?.openingCash || 0 : book === 'bank' ? shop?.openingBank || 0 : named.find(a => `acc:${a.id}` === book)?.opening || 0;
+  const start = (book === 'cash' ? shop?.openingCash || 0 : book === 'bank' ? shop?.openingBank || 0 : named.find(a => `acc:${a.id}` === book)?.opening || 0) + (carried?.[book] || 0);
   const b = useMemo(() => moneyBook(data, book as 'cash', range.from, range.to, start), [data, book, range, start]);
   const csv = () => downloadCsv(`pharmadesk-${book}-book-${range.from}-to-${range.to}.csv`, [
     ['Date', 'Type', 'Document', 'Bill Reference', 'Customer or supplier', 'Money in', 'Money out', 'Balance'],
@@ -218,8 +223,9 @@ function Owes({ data }: { data: BooksData }) {
 
 function Position({ data }: { data: BooksData }) {
   const { shop } = useStore();
+  const carried = useCarry()?.money;
   const open = (type: string) => (shop?.payAccounts || []).filter(a => a.type === type).reduce((n, a) => n + (a.opening || 0), 0);
-  const p = useMemo(() => businessPosition(data, isoDate(), shop?.openingCash || 0, (shop?.openingBank || 0) + open('bank'), open('wallet')), [data, shop]);
+  const p = useMemo(() => businessPosition(data, isoDate(), (shop?.openingCash || 0) + (carried?.cash || 0), (shop?.openingBank || 0) + open('bank') + (carried?.bank || 0), open('wallet') + (carried?.wallet || 0)), [data, shop, carried]);
   return (
     <>
       <div className="row"><h1>Balance Sheet</h1></div>
@@ -237,7 +243,8 @@ function Position({ data }: { data: BooksData }) {
 function MoneyAccounts({ data }: { data: BooksData }) {
   const { ctx, user, shop, toast } = useStore();
   const named = shop?.payAccounts || [];
-  const b = useMemo(() => accountBalances(data, named, isoDate(), shop?.openingCash || 0, shop?.openingBank || 0), [data, shop]);
+  const carried = useCarry()?.money;
+  const b = useMemo(() => accountBalances(data, named.map(a => ({ ...a, opening: (a.opening || 0) + (carried?.[`acc:${a.id}`] || 0) })), isoDate(), (shop?.openingCash || 0) + (carried?.cash || 0), (shop?.openingBank || 0) + (carried?.['loose:bank'] || 0), carried?.['loose:wallet'] || 0), [data, shop, carried]);
   const opts = [{ key: 'cash', name: 'Cash' }, ...b.named.map(n => ({ key: n.key as string, name: n.name }))];
   const [f, setF] = useState({ from: 'cash', to: '', amount: '', note: '' });
   const save = useAsync(async () => {

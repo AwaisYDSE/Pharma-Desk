@@ -9,6 +9,8 @@ import { daysBetween } from './util.ts';
 export interface BooksData {
   invoices: Invoice[]; refunds: Refund[]; purchases: Purchase[]; expenses: Expense[]; ledger: LedgerEntry[];
   batches?: Batch[]; patients?: Patient[]; suppliers?: Supplier[]; moneyMoves?: MoneyMove[];
+  /** Bills from other periods that returns in this data belong to. */
+  invoiceLookup?: Invoice[];
 }
 
 export type EntryKind = 'sale' | 'sale_return' | 'purchase' | 'purchase_return' | 'receipt' | 'payment' | 'expense' | 'move';
@@ -51,7 +53,7 @@ export function allEntries(data: BooksData): Entry[] {
       partyName: inv.patientId ? pName.get(inv.patientId) || '' : '', note: inv.payRef || '', amount: inv.total, moneyIn: method === 'credit' ? 0 : inv.total, moneyOut: 0, accountId: inv.accountId, accountName: inv.accountName, cashierId: inv.cashierId,
     });
   }
-  const invById = new Map(data.invoices.map(i => [i.id, i]));
+  const invById = new Map([...(data.invoiceLookup || []), ...data.invoices].map(i => [i.id, i]));
   for (const r of data.refunds) {
     if (r.deleted) continue;
     const inv = invById.get(r.invoiceId);
@@ -215,9 +217,9 @@ export function groupEntries(rows: Entry[], by: GroupBy, names: (id: string) => 
 }
 
 /** The balance of cash, every named account, and any card or wallet money with no named account. */
-export function accountBalances(data: BooksData, accounts: PayAccount[], today: string, openingCash = 0, openingBank = 0) {
+export function accountBalances(data: BooksData, accounts: PayAccount[], today: string, openingCash = 0, openingBank = 0, openingWallet = 0) {
   const named = accounts.map(a => ({ key: `acc:${a.id}` as const, name: `${a.provider} · ${a.title}`, type: a.type, balance: moneyBook(data, `acc:${a.id}`, today, today, a.opening || 0).closing, active: a.active }));
   const all = allEntries(data);
   const loose = (m: Method) => all.filter(e => e.method === m && !e.accountId).reduce((s, e) => s + e.moneyIn - e.moneyOut, 0);
-  return { cash: moneyBook(data, 'cash', today, today, openingCash).closing, card: loose('bank') + openingBank, wallet: loose('wallet'), named };
+  return { cash: moneyBook(data, 'cash', today, today, openingCash).closing, card: loose('bank') + openingBank, wallet: loose('wallet') + openingWallet, named };
 }

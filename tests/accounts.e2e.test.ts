@@ -131,4 +131,36 @@ describe('Money through purchases, sales and ledgers', () => {
     await tab('Balance Sheet'); await shot('10-balance-sheet');
     expect(errors).toEqual([]);
   }, 60000);
+
+  it('owner turns on financial years, switches to an older year and back', async () => {
+    putRow(db, 'expenses', { id: 'old1', date: '2024-05-05', category: 'Rent', amount: 12300, payMethod: 'cash' } as never, serverClock.tick());
+    await go('settings');
+    await page.getByRole('switch', { name: 'Work one financial year at a time' }).or(page.getByLabel('Work one financial year at a time')).first().click();
+    await page.locator('select[aria-label="Financial year"]').waitFor({ timeout: 15000 });
+    await page.waitForTimeout(1500);
+    await shot('11-year-setting');
+    const y = page.locator('select[aria-label="Financial year"]');
+    const labels = await y.locator('option').allInnerTexts();
+    expect(labels.length).toBeGreaterThan(1);
+    await y.selectOption({ index: labels.length - 1 });
+    await page.getByText('You are looking at an older year', { exact: false }).first().waitFor({ timeout: 20000 });
+    await y.and(page.locator(':enabled')).waitFor({ timeout: 20000 });
+    await go('accounts');
+    await page.waitForTimeout(800);
+    await tab('General Ledger');
+    await page.waitForTimeout(800);
+    await shot('12-older-year');
+    expect(await page.locator('.ledger-group', { hasText: '600000 Expenses' }).innerText()).toMatch(/123\.00[\s\S]*0\.00[\s\S]*123\.00/);
+    expect(await page.locator('input[type=date]').first().inputValue()).toMatch(/^2023-|^2024-/);
+    await y.selectOption({ index: 0 });
+    await page.getByText('You are looking at an older year', { exact: false }).first().waitFor({ state: 'detached', timeout: 20000 });
+    await y.and(page.locator(':enabled')).waitFor({ timeout: 20000 });
+    await page.waitForTimeout(800); // the screen reopens on the year that was chosen
+    await tab('Trial Balance');
+    await page.waitForTimeout(800);
+    await shot('13-this-year-trial');
+    const total = (await page.locator('table tr').last().locator('td').allInnerTexts()).slice(1);
+    expect(total[4]).toBe(total[5]);
+    expect(errors).toEqual([]);
+  }, 90000);
 });

@@ -14,6 +14,7 @@ import { billing } from '../../../shared/region.ts';
 import { Books } from './Books.tsx';
 import { PartnerLedgerView, GeneralLedgerView, TrialBalanceView } from './Ledgers.tsx';
 import { Pictures } from './Pay.tsx';
+import { useOpenYear } from './useYear.ts';
 import { saveExpense, deleteExpense, addPicture } from '../../core/inventory.ts';
 import type { Expense, PayAccount } from '../../../shared/types.ts';
 
@@ -34,8 +35,9 @@ type Preset = 'today' | 'week' | 'month' | 'lastMonth' | 'year' | 'custom';
 function Overview() {
   const { ctx, t, lang, user, toast, shop } = useStore();
   const today = isoDate();
-  const [preset, setPreset] = useState<Preset>('month');
-  const [range, setRange] = useState(() => presetRange('month', today));
+  const openYear = useOpenYear();
+  const [preset, setPreset] = useState<Preset>(openYear ? 'custom' : 'month');
+  const [range, setRange] = useState(() => openYear ? { from: openYear.from, to: openYear.to, group: 'month' as Group } : presetRange('month', today));
   const [edit, setEdit] = useState<Partial<Expense> | null>(null);
   const taxLabel = billing(shop?.billing).taxLabel;
   const data = useLive(async () => ({

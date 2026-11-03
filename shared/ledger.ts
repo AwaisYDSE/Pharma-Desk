@@ -130,6 +130,10 @@ export interface JournalItem { id: string; date: string; journal: JournalCode; m
 export interface JournalData {
   invoices: Invoice[]; invoiceItems?: InvoiceItem[]; refunds: Refund[]; purchases: Purchase[]; expenses: Expense[]; ledger: LedgerEntry[];
   patients?: Patient[]; suppliers?: Supplier[]; moneyMoves?: MoneyMove[]; shop?: Pick<Shop, 'openingCash' | 'openingBank' | 'payAccounts'> | null;
+  /** Bills from other periods that returns in this data belong to. */
+  invoiceLookup?: Invoice[];
+  /** Balances brought forward from earlier financial years. */
+  carryAccounts?: { code: string; name: string; net: number }[] | null;
 }
 
 const OPENING_DAY = '0000-01-01';
@@ -149,7 +153,7 @@ export function journalItems(data: JournalData): JournalItem[] {
   const line = (id: string, date: string, journal: JournalCode, move: string, account: Acc, partner: string, label: string, debit: number, credit: number) => { if (debit || credit) out.push({ id, date, journal, move, account, partner, label, debit, credit }); };
   const costBy = new Map<string, number>();
   for (const it of data.invoiceItems || []) if (!it.deleted) costBy.set(it.invoiceId, (costBy.get(it.invoiceId) || 0) + (it.costPrice || 0) * it.qty);
-  const invById = new Map(data.invoices.map(i => [i.id, i]));
+  const invById = new Map([...(data.invoiceLookup || []), ...data.invoices].map(i => [i.id, i]));
   const refs = vendorRefs(data.purchases);
 
   for (const inv of data.invoices) {
@@ -192,7 +196,7 @@ export function journalItems(data: JournalData): JournalItem[] {
     line(`${p.id}:ap`, d, 'BILL', p.number, ACC.ap, who, label, 0, p.total);
   }
   for (const l of data.ledger) {
-    if (l.deleted) continue;
+    if (l.deleted || l.id.startsWith('carry:')) continue;
     const sup = l.partyType === 'supplier', who = (sup ? sName : pName).get(l.partyId) || '', party = sup ? ACC.ap : ACC.ar;
     if ((l as { foreign?: boolean }).foreign) { // made at another branch: it moves the balance, not this branch's money
       line(`${l.id}:p`, l.date, 'MISC', l.ref, party, who, l.note || l.ref, l.debit, l.credit);
@@ -221,6 +225,7 @@ export function journalItems(data: JournalData): JournalItem[] {
     line(`${m.id}:i`, m.date, 'MISC', 'TRANSFER', place(m.to, m.toName, m), '', m.note || 'Internal Transfer', m.amount, 0);
     line(`${m.id}:o`, m.date, 'MISC', 'TRANSFER', place(m.from, m.fromName, m), '', m.note || 'Internal Transfer', 0, m.amount);
   }
+  for (const c of data.carryAccounts || []) line(`carry:${c.code}:${c.name}`, OPENING_DAY, 'MISC', 'OPENING', { code: c.code, name: c.name }, '', 'Balance brought forward', Math.max(c.net, 0), Math.max(-c.net, 0));
   const open = (id: string, a: Acc, amt: number) => { line(`open:${id}:m`, OPENING_DAY, 'MISC', 'OPENING', a, '', 'Opening balance', amt, 0); line(`open:${id}:e`, OPENING_DAY, 'MISC', 'OPENING', ACC.equity, '', 'Opening balance', 0, amt); };
   open('cash', ACC.cash, data.shop?.openingCash || 0);
   open('bank', ACC.bank, data.shop?.openingBank || 0);

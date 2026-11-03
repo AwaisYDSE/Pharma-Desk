@@ -2,6 +2,7 @@
 // with connection status, language switch and user menu. Modules the user is not
 // allowed to use are simply not shown.
 import React, { useEffect, useState } from 'react';
+import { YearSwitcher, OlderYearNotice } from './Years.tsx';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useStore } from '../store.tsx';
 import { Icon, UserAvatar, Modal, PhotoPicker } from '../components.tsx';
@@ -60,6 +61,7 @@ export function Shell({ route, go, children }: { route: string; go: (r: string) 
             {ctx.standalone ? <Icon name="phone" size={14} /> : online ? <span className="status-dot"><i /><b /></span> : <Icon name="wifiOff" size={14} />}
             {ctx.standalone ? 'This device only' : online ? t('online') : t('offline')}{pending > 0 && <> · <span className="num">{pending}</span> {t('pending')}</>}
           </span>
+          <YearSwitcher />
           <select className="input" style={{ width: 'auto', minHeight: 38 }} aria-label={t('language')} value={lang} onChange={e => setLang(e.target.value as never)}>
             {LANGS.map(l => <option key={l.code} value={l.code}>{l.label}</option>)}
           </select>
@@ -79,7 +81,8 @@ export function Shell({ route, go, children }: { route: string; go: (r: string) 
         </AnimatePresence>
         {shop?.supportAccess && <div className="support-banner" role="status"><Icon name="shield" size={16} /> <span>Support access is ON — the developer can connect to help this shop. The owner can turn it off in Settings.</span></div>}
         <AnimatePresence mode="wait">
-          <motion.main key={route} className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .18 }}>
+          <motion.main key={route + (ctx.yearView || '')} className="page" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: .18 }}>
+            <OlderYearNotice />
             {shop?.planWarn && <div className="plan-banner" role="status"><Icon name="warn" size={18} /><span><strong>Your plan ends soon.</strong> {t('Days left')}: <strong>{shop.planWarn.daysLeft}</strong></span></div>}
             {children}
           </motion.main>

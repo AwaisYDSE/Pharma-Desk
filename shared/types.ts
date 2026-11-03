@@ -137,6 +137,8 @@ export interface Shop extends Synced {
   planWarn?: { daysLeft: number; vendor: string } | null;
   /** FBR reporting is on (Pakistan only) — devices wait briefly for the FBR number before printing. */
   fbrOn?: boolean;
+  /** The owner's choice: devices keep one financial year at a time. */
+  years?: { on: boolean; startMonth: number } | null;
 }
 export interface AuditEntry extends Synced {
   at: string; userId: string | null; userName?: string | null; deviceId?: string; action: string;
@@ -187,4 +189,4 @@ export interface OpResult {
   conflicts?: { medicineId: string; shortBy: number }[];
 }
 export interface PullChange { tbl: SyncTable; id: string; data: Synced; hlc: string; rev: number }
-export interface PullResponse { changes: PullChange[]; rev: number; more: boolean }
+export interface PullResponse { changes: PullChange[]; rev: number; more: boolean; older?: boolean }

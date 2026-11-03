@@ -9,6 +9,7 @@ import { can } from '../../../shared/permissions.ts';
 import { isoDate, addDays } from '../../../shared/util.ts';
 import { presetRange, dayOf } from '../../../shared/accounting.ts';
 import { partnerLedger, journalItems, generalLedger, trialBalance, type PartnerData, type JournalData } from '../../../shared/ledger.ts';
+import { useOpenYear, useCarry } from './useYear.ts';
 import type { Invoice, Refund, MoneyMove } from '../../../shared/types.ts';
 
 const PAGE = 200;
@@ -22,7 +23,8 @@ function downloadCsv(name: string, rows: (string | number)[][]) {
 }
 
 function useRange() {
-  return useState(() => { const r = presetRange('month', isoDate()); return { from: r.from, to: r.to }; });
+  const open = useOpenYear();
+  return useState(() => { if (open) return { from: open.from, to: open.to }; const r = presetRange('month', isoDate()); return { from: r.from, to: r.to }; });
 }
 
 function Dates({ range, set }: { range: { from: string; to: string }; set: (r: { from: string; to: string }) => void }) {
@@ -110,11 +112,12 @@ export function PartnerLedgerView() {
 /** General Ledger and Trial Balance look at every money document, so they read them all once and keep the journal items. */
 function useJournal() {
   const { ctx, shop } = useStore();
+  const carry = useCarry();
   const raw = useLive(async (): Promise<JournalData> => ({
     invoices: await ctx.db.invoices.toArray(), invoiceItems: await ctx.db.invoiceItems.toArray(), refunds: await ctx.db.refunds.toArray() as Refund[], purchases: await ctx.db.purchases.toArray(),
     expenses: await ctx.db.expenses.toArray(), ledger: await ctx.db.ledger.toArray(), patients: await ctx.db.patients.toArray(), suppliers: await ctx.db.suppliers.toArray(), moneyMoves: await ctx.db.table('moneyMoves').toArray() as MoneyMove[],
   }), [], null as unknown as JournalData);
-  return useMemo(() => raw ? journalItems({ ...raw, shop }) : null, [raw, shop]);
+  return useMemo(() => raw ? journalItems({ ...raw, shop, carryAccounts: carry?.accounts }) : null, [raw, shop, carry]);
 }
 
 export function GeneralLedgerView() {
