@@ -20,6 +20,9 @@ import {
 } from '../../core/inventory.ts';
 import { PO_STEPS, TRANSITIONS, normStatus, statusLabel, stepIndex, isOpen } from '../../../shared/purchase-flow.ts';
 import { voidInvoice, refundItems, returnedQty } from '../../core/pos.ts';
+import { addPicture } from '../../core/inventory.ts';
+import { PayStateBadge, PaymentSummary, RegisterPayment, Pictures, JournalOptions, journalChoice, usePayAccounts, useInvoiceMatches } from './Pay.tsx';
+import { billMatches, vendorRefs, type DocMatch } from '../../../shared/ledger.ts';
 
 const INV_STATUS: Record<string, [string, string]> = { paid: ['Paid', 'ok'], credit: ['Unpaid (credit)', 'warn'], partial_refund: ['Partially refunded', 'info'], refunded: ['Refunded', 'info'], void: ['Cancelled', 'bad'] };
 import { MedThumb, MedName } from '../MedIcon.tsx';
@@ -271,7 +274,9 @@ export function Purchases() {
   const pos = useLive(() => ctx.db.purchases.filter(p => !p.deleted).toArray(), [], [] as Purchase[]);
   const sups = useLive(() => ctx.db.suppliers.filter(s => !s.deleted).toArray(), [], [] as Supplier[]);
   const meds = useLive(() => ctx.db.medicines.filter(m => !m.deleted).toArray(), [], [] as Medicine[]);
-  const [form, setForm] = useState<{ id?: string; supplierId: string; lines: Line[] } | null>(null);
+  const [form, setForm] = useState<{ id?: string; supplierId: string; lines: Line[]; payBy?: string; payAmount?: string; pics?: string[]; vendorRef?: string } | null>(null);
+  const payAccounts = usePayAccounts();
+  const bills = useLive(async () => billMatches(await ctx.db.ledger.filter(l => l.partyType === 'supplier').toArray()), [], new Map<string, DocMatch>());
   const [openId, setOpenId] = useState<string | null>(null);
   const [newMed, setNewMed] = useState<{ name: string; line: number } | null>(null);
   const [newSup, setNewSup] = useState(false);
@@ -305,7 +310,11 @@ export function Purchases() {
       return { medicineId: m.id, qty, freeQty: free, costPrice: rs(l.cost), salePrice: l.sale ? rs(l.sale) : null, batchNo: l.batchNo.trim(), mfgDate: null, expiryDate: l.expiryDate };
     });
     const prev = form!.id ? pos.find(x => x.id === form!.id) : undefined;
-    const p = await savePurchase(ctx, { ...(form!.id ? { id: form!.id } : {}), supplierId: form!.supplierId, date: prev?.date || today, status: prev ? prev.status : 'sent' }, items.map(i => ({ ...i, expiryDate: i.batchNo ? i.expiryDate : '' })));
+    const by = form!.payBy || 'credit';
+    const payPlan = by === 'credit' ? { method: 'credit' as const } : { ...journalChoice(by, payAccounts), amount: form!.payAmount ? rs(form!.payAmount) : null };
+    const p = await savePurchase(ctx, { ...(form!.id ? { id: form!.id } : {}), supplierId: form!.supplierId, date: prev?.date || today, status: prev ? prev.status : 'sent', payPlan, vendorRef: form!.vendorRef?.trim() || null }, items.map(i => ({ ...i, expiryDate: i.batchNo ? i.expiryDate : '' })));
+    for (const pic of form!.pics || []) await addPicture(ctx, 'purchase', p.id, pic);
+    if (p.vendorRef && pos.some(x => x.id !== p.id && x.supplierId === p.supplierId && x.vendorRef === p.vendorRef)) toast('warn', `Bill Reference ${p.vendorRef} is already on another purchase from this vendor`);
     setForm(null); setOpenId(p.id);
     toast('ok', `${p.number} saved`, can(user, 'purchases.receive') ? 'Press "Receive" when the stock arrives — it then goes into Inventory and can be sold.' : undefined);
   });
@@ -318,11 +327,11 @@ export function Purchases() {
         {can(user, 'purchases.create') && <button type="button" className="btn" disabled={!online} title={online ? '' : 'Needs the server'} onClick={async () => { try { const r = await client.request<{ drafts: string[]; low: number }>('POST', '/api/automation/reorder-now', {}); toast('ok', r.drafts.length ? `${r.drafts.length} draft order(s) made` : r.low ? 'Low items are already on order or have no supplier' : 'No items are low', r.drafts.join(', ')); } catch (e) { toast('bad', (e as Error).message); } }}><Icon name="spark" size={16} /> Check stock now</button>}
         {can(user, 'purchases.create') && <button type="button" className="btn primary" onClick={() => setForm({ supplierId: '', lines: [blank()] })}><Icon name="plus" /> New purchase</button>}</div>
       <div className="table-wrap">{list.length === 0 ? <Empty icon="truck" text="No purchases yet" /> :
-        <table className="t"><thead><tr><th>#</th><th>{t('suppliers')}</th><th>Date</th><th>{t('total')}</th><th>Status</th><th /></tr></thead><tbody>
+        <table className="t"><thead><tr><th>#</th><th>Bill Reference</th><th>{t('suppliers')}</th><th>Date</th><th>{t('total')}</th><th>Status</th><th>Payment Status</th><th /></tr></thead><tbody>
           {list.map(p => { const s = sups.find(x => x.id === p.supplierId); return (
-            <tr key={p.id} className="click" onClick={() => setOpenId(p.id)}><td className="num"><strong>{p.number}</strong></td>
+            <tr key={p.id} className="click" onClick={() => setOpenId(p.id)}><td className="num"><strong>{p.number}</strong></td><td className="num">{p.vendorRef}</td>
               <td>{s ? <Link onClick={() => navigate('suppliers', { open: 'supplier', id: s.id })}>{s.name}</Link> : '—'}</td><td className="num">{p.date}</td><td className="num">{money(p.total, lang)}</td>
-              <td><StatusBadge p={p} /></td>
+              <td><StatusBadge p={p} /></td><td>{p.status === 'received' && <PayStateBadge state={bills.get(p.number)?.state || 'paid'} />}</td>
               <td>{['sent', 'ordered', 'arrived'].includes(p.status) && can(user, 'purchases.receive') && <button type="button" className="btn sm primary" onClick={e => { e.stopPropagation(); void restock(p); }}>{t('receive')}</button>}</td></tr>); })}
         </tbody></table>}</div>
 
@@ -331,6 +340,7 @@ export function Purchases() {
           <div className="row" style={{ alignItems: 'flex-end' }}>
             <label className="field" style={{ flex: 1 }}>Supplier<select className="input" value={form.supplierId} onChange={e => setForm({ ...form, supplierId: e.target.value })}><option value="">Choose supplier…</option>{sups.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
             {can(user, 'suppliers.create') && <button type="button" className="btn" onClick={() => setNewSup(true)}><Icon name="plus" size={16} /> New supplier</button>}
+            <label className="field" style={{ flex: 1 }}>Bill Reference<input className="input" maxLength={40} placeholder="Vendor invoice number" value={form.vendorRef || ''} onChange={e => setForm({ ...form, vendorRef: e.target.value })} /></label>
           </div>
           <details className="small"><summary style={{ cursor: 'pointer', fontWeight: 700 }}>Paste many lines at once</summary>
             <PasteLines meds={meds} onAdd={rows => setForm(f => f && ({ ...f, lines: [...f.lines.filter(l => l.medicineId || l.qty), ...rows.map(x => blank(x)), blank()] }))} />
@@ -353,6 +363,11 @@ export function Purchases() {
                 </div>
               </div>); })}
           </div>
+          {can(user, 'suppliers.payment') && <div className="form-grid two">
+            <label className="field">Payment<select className="input" value={form.payBy || 'credit'} onChange={e => setForm({ ...form, payBy: e.target.value })}><option value="credit">Credit</option><JournalOptions accounts={payAccounts} /></select></label>
+            {(form.payBy || 'credit') !== 'credit' && <label className="field">Amount paid on receipt<input className="input num" inputMode="decimal" placeholder={t('Full')} value={form.payAmount || ''} onChange={e => setForm({ ...form, payAmount: e.target.value.replace(/[^\d.]/g, '') })} /></label>}
+          </div>}
+          <Pictures docType="purchase" docId={form.id} pending={form.pics} setPending={v => setForm(f => f && ({ ...f, pics: v }))} />
           {save.err && <span className="err" role="alert">{save.err}</span>}
           <div className="form-actions"><strong className="big">{t('total')}: <span className="num">{money(form.lines.reduce((s, l) => s + rs(l.cost) * (Number(l.qty) || 0), 0), lang)}</span></strong><span className="spacer" /><button type="button" className="btn" onClick={() => setForm(null)}>{t('cancel')}</button><button className="btn primary" disabled={save.busy}>{t('save')}</button></div>
         </form></Modal>}
@@ -364,7 +379,8 @@ export function Purchases() {
       {newSup && <PartyForm kind="suppliers" initial={{ name: '' }} onClose={() => setNewSup(false)} onSaved={s => { setNewSup(false); if (form) setForm({ ...form, supplierId: s.id }); }} />}
       {open && <PurchaseDetail p={open} sups={sups} meds={meds} onRestock={() => restock(open)} onEdit={async () => {
         const items = (await ctx.db.purchaseItems.where('purchaseId').equals(open.id).toArray()).filter(x => !x.deleted);
-        setForm({ id: open.id, supplierId: open.supplierId, lines: [...items.map(x => blank({ medicineId: x.medicineId, qty: String(x.qty), free: String(x.freeQty || 0), cost: String(x.costPrice / 100), sale: x.salePrice ? String(x.salePrice / 100) : '', batchNo: x.batchNo, expiryDate: x.expiryDate })), blank()] });
+        const plan = open.payPlan;
+        setForm({ id: open.id, supplierId: open.supplierId, vendorRef: open.vendorRef || '', payBy: !plan || plan.method === 'credit' ? 'credit' : plan.accountId ? `acc:${plan.accountId}` : plan.method, payAmount: plan?.amount ? String(plan.amount / 100) : '', lines: [...items.map(x => blank({ medicineId: x.medicineId, qty: String(x.qty), free: String(x.freeQty || 0), cost: String(x.costPrice / 100), sale: x.salePrice ? String(x.salePrice / 100) : '', batchNo: x.batchNo, expiryDate: x.expiryDate })), blank()] });
         setOpenId(null);
       }} onClose={() => setOpenId(null)} />}
     </>
@@ -376,6 +392,14 @@ function StatusBadge({ p }: { p: Purchase }) {
   return <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}><span className={`badge ${cls}`}>{statusLabel(p.status)}</span>{p.auto && <span className="badge acc" title="Made automatically because stock was low">Auto</span>}</span>;
 }
 
+/** The vendor's invoice often comes after the stock, so its number can still be added once received. */
+function BillRef({ p }: { p: Purchase }) {
+  const { ctx, toast } = useStore();
+  const [v, setV] = useState(p.vendorRef || '');
+  const save = async () => { if (v.trim() === (p.vendorRef || '')) return; try { await saveRecord(ctx, 'purchases', { ...p, vendorRef: v.trim() || null } as never); toast('ok', 'Saved'); } catch (e) { toast('bad', (e as Error).message); } };
+  return <label className="field" style={{ maxWidth: 280 }}>Bill Reference<input className="input" maxLength={40} placeholder="Vendor invoice number" value={v} onChange={e => setV(e.target.value)} onBlur={() => void save()} /></label>;
+}
+
 function PurchaseDetail({ p, sups, meds, onEdit, onClose, onRestock }: { p: Purchase; sups: Supplier[]; meds: Medicine[]; onEdit: () => void; onClose: () => void; onRestock: () => void }) {
   const { ctx, t, lang, user, toast, client, online } = useStore();
   const move = async (to: Purchase['status']) => { try { await setPurchaseStatus(ctx, p.id, to); toast('ok', statusLabel(to)); } catch (e) { toast('bad', (e as Error).message); } };
@@ -383,18 +407,21 @@ function PurchaseDetail({ p, sups, meds, onEdit, onClose, onRestock }: { p: Purc
   const items = useLive(() => ctx.db.purchaseItems.where('purchaseId').equals(p.id).toArray().then(x => x.filter(i => !i.deleted)), [p.id], [] as PurchaseItem[]);
   const s = sups.find(x => x.id === p.supplierId);
   const received = p.status === 'received';
+  const [paying, setPaying] = useState(false);
+  const bill = useLive(async () => received ? billMatches(await ctx.db.ledger.where('[partyType+partyId]').equals(['supplier', p.supplierId]).toArray()).get(p.number) ?? null : null, [p.id, received], null as DocMatch | null);
   return (
     <Modal title={`Purchase ${p.number}`} onClose={onClose} wide>
       <div className="col">
         <ol className="po-steps">{PO_STEPS.map((st, i) => <li key={st.key} className={i < stepIndex(p.status) ? 'done' : i === stepIndex(p.status) ? 'now' : ''}>{st.label}</li>)}</ol>
         {p.notes && <span className="small muted">{p.notes}</span>}
-        <div className="row"><StatusBadge p={p} />
+        <div className="row"><StatusBadge p={p} />{bill && <PayStateBadge state={bill.state} />}
           <span className="muted">{p.date}</span>{s && <Link onClick={() => { onClose(); navigate('suppliers', { open: 'supplier', id: s.id }); }}><Icon name="factory" size={14} /> {s.name}</Link>}<span className="spacer" />
           {!received && can(user, 'purchases.edit') && <button type="button" className="btn sm" onClick={onEdit}>{t('edit')}</button>}
           {!received && can(user, 'purchases.delete') && <button type="button" className="btn sm danger" onClick={async () => { if (await confirmAsk({ message: `Cancel purchase ${p.number}?`, danger: true, confirmText: 'Cancel purchase' })) { try { await cancelPurchase(ctx, p.id); toast('ok', `${p.number} cancelled`); onClose(); } catch (e) { toast('bad', (e as Error).message); } } }}>Cancel purchase</button>}
           {steps.map(x => <button type="button" key={x.to} className={`btn sm ${x.to === 'sent' ? 'primary' : ''}`} onClick={() => move(x.to)}>{x.label}</button>)}
           {['sent', 'ordered'].includes(p.status) && s && (s.email || s.phone) && can(user, 'purchases.approve') && <button type="button" className="btn sm" disabled={!online} onClick={async () => { try { const r = await client.request<{ queued: number }>('POST', `/api/notify/po/${p.id}`, {}); toast('ok', `Order sent to ${s.name}`, `${r.queued} message(s)`); } catch (e) { toast('bad', (e as Error).message); } }}><Icon name="send" size={16} /> Email / SMS to supplier</button>}
           {['sent', 'ordered', 'arrived'].includes(p.status) && can(user, 'purchases.receive') && <button type="button" className="btn sm primary" onClick={onRestock}>{t('receive')}</button>}
+          {bill && bill.residual > 0 && can(user, 'suppliers.payment') && <button type="button" className="btn sm primary" onClick={() => setPaying(true)}>Register Payment</button>}
         </div>
         <div className="table-wrap"><table className="t"><thead><tr><th>Item</th><th>{t('batch')}</th><th>{t('expiry')}</th><th>{t('qty')}</th><th>{t('costPrice')}</th><th>{t('amount')}</th></tr></thead><tbody>
           {items.map(i => { const m = meds.find(x => x.id === i.medicineId); return (
@@ -402,6 +429,10 @@ function PurchaseDetail({ p, sups, meds, onEdit, onClose, onRestock }: { p: Purc
               <td className="num">{i.batchNo || <span className="faint">—</span>}</td><td className="num">{i.expiryDate || <span className="faint">—</span>}</td><td className="num">{i.qty}</td><td className="num">{money(i.costPrice, lang)}</td><td className="num">{money(i.costPrice * i.qty, lang)}</td></tr>); })}
         </tbody></table></div>
         <div className="row"><span className="spacer" /><strong>{t('total')}: <span className="num">{money(p.total, lang)}</span></strong></div>
+        {bill && <PaymentSummary doc={bill} />}
+        {can(user, 'purchases.edit') ? <BillRef p={p} /> : p.vendorRef && <span className="small muted">Bill Reference <strong className="num">{p.vendorRef}</strong></span>}
+        <Pictures docType="purchase" docId={p.id} />
+        {paying && bill && <RegisterPayment partyType="supplier" partyId={p.supplierId} doc={bill} onClose={() => setPaying(false)} />}
       </div>
     </Modal>
   );
@@ -524,7 +555,7 @@ function PartyDetail({ kind, party, onEdit, onClose }: { kind: 'suppliers' | 'pa
         {tab === 'bills' && (bills.length === 0 ? <Empty icon="receipt" text="No bills yet" /> : <div className="table-wrap"><table className="t"><thead><tr><th>Bill</th><th>Date</th><th>{t('total')}</th><th>Status</th></tr></thead><tbody>
           {[...bills].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(b => <tr key={b.id}><td>{can(user, 'invoices') ? <Link onClick={() => { onClose(); navigate('invoices', { open: 'invoice', id: b.id }); }}>{b.number}</Link> : b.number}</td><td className="num">{fmtDate(b.createdAt)}</td><td className="num">{money(b.total, lang as never)}</td><td><span className={`badge ${b.status === 'void' ? 'bad' : b.status === 'credit' ? 'warn' : 'ok'}`}>{b.status}</span></td></tr>)}
         </tbody></table></div>)}
-        {tab === 'ledger' && <Statement party={party} kind={kind} ledger={ledger} />}
+        {tab === 'ledger' && <Statement party={party} kind={kind} ledger={ledger} refs={vendorRefs(purchases)} />}
         {tab === 'rx' && <>
           {rx.length === 0 && <Empty icon="rx" text="No repeat prescriptions" />}
           {rx.map(p => { const m = meds.find(x => x.id === p.medicineId); const due = p.nextDue <= addDays(isoDate(), 3); return (
@@ -556,17 +587,18 @@ export function Invoices() {
   const patients = useLive(() => ctx.db.patients.toArray(), [], [] as Patient[]);
   const openInv = useLive(() => openId ? ctx.db.invoices.get(openId) : Promise.resolve(undefined), [openId], undefined as Invoice | undefined);
   const total = inv.filter(i => i.status !== 'void').reduce((s, i) => s + i.total, 0);
+  const payStates = useInvoiceMatches(inv);
   return (
     <>
       <div className="row"><h1>{t('invoices')}</h1><span className="badge num">{inv.length} · {money(total, lang)}</span><span className="spacer" />
         {!can(user, 'invoices.view_all') && <span className="small muted">Showing your own bills</span>}
         <input className="input" type="date" style={{ width: 'auto' }} value={day} max={isoDate()} onChange={e => setDay(e.target.value || isoDate())} /></div>
       <div className="table-wrap">{inv.length === 0 ? <Empty icon="receipt" text="No bills on this day" /> :
-        <table className="t"><thead><tr><th>#</th><th>Time</th><th>{t('patient')}</th><th>Cashier</th><th>{t('total')}</th><th>Status</th></tr></thead><tbody>
+        <table className="t"><thead><tr><th>#</th><th>Time</th><th>{t('patient')}</th><th>Cashier</th><th>{t('total')}</th><th>Status</th><th>Payment Status</th></tr></thead><tbody>
           {inv.map(i => { const p = patients.find(x => x.id === i.patientId); return <tr key={i.id} className="click" onClick={() => setOpenId(i.id)}><td className="num"><strong>{i.number}</strong></td><td className="num">{new Date(i.createdAt).toLocaleTimeString(dateLocale())}</td>
             <td>{p ? <Link onClick={() => navigate('patients', { open: 'patient', id: p.id })}>{p.name}</Link> : <span className="faint small">Walk-in</span>}</td>
             <td>{users.find(u => u.id === i.cashierId)?.name}</td><td className="num">{money(i.total, lang)}</td>
-            <td><span className={`badge ${i.rejected ? 'bad' : (INV_STATUS[i.status] || ['', ''])[1]}`}>{i.rejected ? 'not saved' : (INV_STATUS[i.status] || [i.status])[0]}</span>{i.conflict && <span className="badge warn" style={{ marginInlineStart: 6 }}>check stock</span>}</td></tr>; })}
+            <td><span className={`badge ${i.rejected ? 'bad' : (INV_STATUS[i.status] || ['', ''])[1]}`}>{i.rejected ? 'not saved' : (INV_STATUS[i.status] || [i.status])[0]}</span>{i.conflict && <span className="badge warn" style={{ marginInlineStart: 6 }}>check stock</span>}</td><td>{i.status !== 'void' && <PayStateBadge state={payStates.get(i.number)?.state} />}</td></tr>; })}
         </tbody></table>}</div>
       {openInv && (can(user, 'invoices.view_all') || openInv.cashierId === user?.id) && <InvoiceDetail inv={openInv} onClose={() => setOpenId(null)} />}
     </>
@@ -582,6 +614,8 @@ function InvoiceDetail({ inv, onClose }: { inv: Invoice & { rejected?: string };
   const { client, online } = useStore();
   const [voiding, setVoiding] = useState(false);
   const [returning, setReturning] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const doc = useInvoiceMatches([inv]).get(inv.number);
   const [sending, setSending] = useState(false);
   const [reason, setReason] = useState('');
   const [sup, setSup] = useState(false);
@@ -603,6 +637,7 @@ function InvoiceDetail({ inv, onClose }: { inv: Invoice & { rejected?: string };
           <button type="button" className="btn sm" onClick={() => printer.enqueue(inv.id)}><Icon name="print" size={16} /> {t('reprint')}</button>
             <button type="button" className="btn sm" onClick={async () => { const d = await receiptData(ctx, inv.id, settings); if (d) downloadReceipt(d); }}><Icon name="download" size={16} /> PDF</button></>}
           {can(user, 'messages.send') && !inv.rejected && <button type="button" className="btn sm" disabled={!online} title={online ? '' : 'Needs the server'} onClick={() => setSending(true)}><Icon name="send" size={16} /> Send bill</button>}
+          {doc && doc.residual > 0 && inv.patientId && inv.status !== 'void' && can(user, 'patients.payment') && <button type="button" className="btn sm primary" onClick={() => setPaying(true)}>Register Payment</button>}
           {!['void', 'refunded'].includes(inv.status) && !inv.rejected && <button type="button" className="btn sm" onClick={() => setReturning(true)}>Return items</button>}
           {inv.status !== 'void' && inv.status !== 'refunded' && !inv.rejected && <button type="button" className="btn sm danger" onClick={() => setVoiding(true)}>{t('void')}</button>}
         </div>
@@ -616,12 +651,14 @@ function InvoiceDetail({ inv, onClose }: { inv: Invoice & { rejected?: string };
           <span className="small muted">{t('subtotal')} <span className="num">{money(inv.gross, lang)}</span>{inv.discount ? <> · {t('discount')} <span className="num">-{money(inv.discount, lang)}</span></> : null}{inv.tax ? <> · {t('gst')} <span className="num">{money(inv.tax, lang)}</span></> : null}</span>
           <strong className="big num">{money(inv.total, lang)}</strong><span className="small muted">{`Paid (${inv.payMethod})`} <span className="num">{money(inv.paid, lang)}</span>{inv.change ? <> · change <span className="num">{money(inv.change, lang)}</span></> : null}</span>
           {inv.note && <span className="small faint">{inv.note}</span>}
+          {doc && inv.status !== 'void' && <><PayStateBadge state={doc.state} /><PaymentSummary doc={doc} /></>}
         </div>
         {voiding && <div className="card col"><span className="muted small">All items go back into Inventory (to the same batches). Recorded in the activity log.</span>
           <input className="input" autoFocus maxLength={120} placeholder="Reason" value={reason} onChange={e => setReason(e.target.value)} />
           <div className="row"><button type="button" className="btn" onClick={() => setVoiding(false)}>{t('cancel')}</button><button type="button" className="btn danger" disabled={!reason.trim()} onClick={() => doVoid()}>{t('void')}</button></div></div>}
       </div>
       {sup && <SupervisorPrompt perm="invoices.void" onApproved={id => { setSup(false); void doVoid(id); }} onClose={() => setSup(false)} />}
+      {paying && doc && inv.patientId && <RegisterPayment partyType="patient" partyId={inv.patientId} doc={doc} onClose={() => setPaying(false)} />}
       {returning && <ReturnItems inv={inv} items={items} onClose={() => setReturning(false)} />}
       {sending && <SendBill inv={inv} patient={patient} onClose={() => setSending(false)} send={async (to) => { const r = await client.request<{ queued: number }>('POST', `/api/notify/receipt/${inv.id}`, to); toast('ok', 'Bill is being sent', `${r.queued} message(s)`); setSending(false); }} />}
     </Modal>
@@ -744,7 +781,8 @@ function PasteLines({ meds, onAdd }: { meds: Medicine[]; onAdd: (rows: Partial<L
 }
 
 /** Account statement with opening balance, running balance and closing balance — print or send. */
-function Statement({ party, kind, ledger }: { party: Supplier | Patient; kind: 'suppliers' | 'patients'; ledger: { id: string; date: string; ref: string; note?: string; debit: number; credit: number }[] }) {
+function Statement({ party, kind, ledger, refs = new Map() }: { party: Supplier | Patient; kind: 'suppliers' | 'patients'; ledger: { id: string; date: string; ref: string; note?: string; debit: number; credit: number; matchDoc?: string | null }[]; refs?: Map<string, string> }) {
+  const refText = (l: { ref: string; matchDoc?: string | null }) => { const r = refs.get(l.matchDoc || l.ref); return r ? `${l.ref} · ${r}` : l.ref; };
   const { lang, shop } = useStore();
   const [from, setFrom] = useState(addDays(isoDate(), -90)), [to, setTo] = useState(isoDate());
   const sign = (l: { debit: number; credit: number }) => kind === 'suppliers' ? l.credit - l.debit : l.debit - l.credit;
@@ -757,7 +795,7 @@ function Statement({ party, kind, ledger }: { party: Supplier | Patient; kind: '
       <h2>${escapeHtml(shop?.name || '')}</h2><h3>Account statement — ${escapeHtml(party.name)}</h3><p>${from} to ${to}</p>
       <table><tr><th>Date</th><th>Ref</th><th class="n">Debit</th><th class="n">Credit</th><th class="n">Balance</th></tr>
       <tr><td colspan="4">Opening balance</td><td class="n">${money(opening, lang as never)}</td></tr>
-      ${rows.map(r => `<tr><td>${r.date}</td><td>${escapeHtml(r.ref)} ${escapeHtml(r.note || '')}</td><td class="n">${r.debit ? money(r.debit, lang as never) : ''}</td><td class="n">${r.credit ? money(r.credit, lang as never) : ''}</td><td class="n">${money(r.bal, lang as never)}</td></tr>`).join('')}
+      ${rows.map(r => `<tr><td>${r.date}</td><td>${escapeHtml(refText(r))} ${escapeHtml(r.note || '')}</td><td class="n">${r.debit ? money(r.debit, lang as never) : ''}</td><td class="n">${r.credit ? money(r.credit, lang as never) : ''}</td><td class="n">${money(r.bal, lang as never)}</td></tr>`).join('')}
       <tr><th colspan="4">Closing balance</th><th class="n">${money(run, lang as never)}</th></tr></table>`;
     const area = document.createElement('div'); area.className = 'print-area'; area.innerHTML = html;
     document.body.appendChild(area); window.print(); setTimeout(() => area.remove(), 1000);
@@ -769,7 +807,7 @@ function Statement({ party, kind, ledger }: { party: Supplier | Patient; kind: '
         <span className="spacer" /><button type="button" className="btn" onClick={print}><Icon name="print" size={16} /> Print / PDF</button></div>
       <div className="table-wrap"><table className="t"><thead><tr><th>Date</th><th>Ref</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>
         <tr><td colSpan={4}><strong>Opening balance</strong></td><td className="num"><strong>{money(opening, lang as never)}</strong></td></tr>
-        {rows.map(l => <tr key={l.id}><td className="num">{l.date}</td><td>{l.ref} <span className="muted small">{l.note}</span></td><td className="num">{l.debit ? money(l.debit, lang as never) : ''}</td><td className="num">{l.credit ? money(l.credit, lang as never) : ''}</td><td className="num">{money(l.bal, lang as never)}</td></tr>)}
+        {rows.map(l => <tr key={l.id}><td className="num">{l.date}</td><td>{refText(l)} <span className="muted small">{l.note}</span></td><td className="num">{l.debit ? money(l.debit, lang as never) : ''}</td><td className="num">{l.credit ? money(l.credit, lang as never) : ''}</td><td className="num">{money(l.bal, lang as never)}</td></tr>)}
         <tr><td colSpan={4}><strong>Closing balance</strong></td><td className="num"><strong>{money(run, lang as never)}</strong></td></tr>
       </tbody></table></div>
     </div>

@@ -12,17 +12,19 @@ import { isoDate } from '../../../shared/util.ts';
 import { summarize, presetRange, EXPENSE_CATEGORIES, type Group } from '../../../shared/accounting.ts';
 import { billing } from '../../../shared/region.ts';
 import { Books } from './Books.tsx';
-import { saveExpense, deleteExpense } from '../../core/inventory.ts';
+import { PartnerLedgerView, GeneralLedgerView, TrialBalanceView } from './Ledgers.tsx';
+import { Pictures } from './Pay.tsx';
+import { saveExpense, deleteExpense, addPicture } from '../../core/inventory.ts';
 import type { Expense, PayAccount } from '../../../shared/types.ts';
 
 /** The Accounts module: overview plus the books. */
 export function Accounts() {
-  const [tab, setTab] = useState<'overview' | 'statement' | 'cash' | 'money' | 'parties' | 'position'>('overview');
-  const tabs: [typeof tab, string][] = [['overview', 'Overview'], ['statement', 'Statements'], ['cash', 'Cash book'], ['money', 'Money accounts'], ['parties', 'Who owes what'], ['position', 'Business position']];
+  const [tab, setTab] = useState<'overview' | 'partner' | 'general' | 'trial' | 'statement' | 'cash' | 'money' | 'parties' | 'position'>('overview');
+  const tabs: [typeof tab, string][] = [['overview', 'Overview'], ['partner', 'Partner Ledger'], ['general', 'General Ledger'], ['trial', 'Trial Balance'], ['parties', 'Aged Partner Balance'], ['position', 'Balance Sheet'], ['cash', 'Cash book'], ['money', 'Money accounts'], ['statement', 'Statements']];
   return (
     <>
       <div className="books-tabs"><div className="tabs" role="tablist">{tabs.map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div></div>
-      {tab === 'overview' ? <Overview /> : <Books view={tab} />}
+      {tab === 'overview' ? <Overview /> : tab === 'partner' ? <PartnerLedgerView /> : tab === 'general' ? <GeneralLedgerView /> : tab === 'trial' ? <TrialBalanceView /> : <Books view={tab} />}
     </>
   );
 }
@@ -141,8 +143,10 @@ const expensePay = (v: string, list?: PayAccount[]) => {
 function ExpenseForm({ e, onClose, onSaved }: { e: Partial<Expense>; onClose: () => void; onSaved: () => void }) {
   const { ctx, t, user, shop } = useStore();
   const [f, setF] = useState({ date: e.date || isoDate(), category: e.category || 'Other', amount: e.amount ? String(e.amount / 100) : '', payMethod: e.payMethod || 'cash', paidTo: e.paidTo || '', note: e.note || '' });
+  const [pics, setPics] = useState<string[]>([]);
   const a = useAsync(async () => {
-    await saveExpense(ctx, { ...(e.id ? e : {}), date: f.date, category: f.category, amount: toPaisa(f.amount || 0), payMethod: f.payMethod as Expense['payMethod'], paidTo: f.paidTo.trim(), note: f.note.trim() } as never);
+    const saved = await saveExpense(ctx, { ...(e.id ? e : {}), date: f.date, category: f.category, amount: toPaisa(f.amount || 0), payMethod: f.payMethod as Expense['payMethod'], paidTo: f.paidTo.trim(), note: f.note.trim() } as never);
+    for (const p of pics) await addPicture(ctx, 'expense', (saved as Expense).id, p);
     onSaved();
   });
   return (
@@ -156,6 +160,7 @@ function ExpenseForm({ e, onClose, onSaved }: { e: Partial<Expense>; onClose: ()
           <label className="field" style={{ gridColumn: '1 / -1' }}>Paid to<input className="input" maxLength={80} value={f.paidTo} onChange={ev => setF({ ...f, paidTo: ev.target.value })} /></label>
           <label className="field" style={{ gridColumn: '1 / -1' }}>Note<input className="input" maxLength={200} value={f.note} onChange={ev => setF({ ...f, note: ev.target.value })} /></label>
         </div>
+        <Pictures docType="expense" docId={e.id} pending={pics} setPending={setPics} />
         {a.err && <span className="err" role="alert">{a.err}</span>}
         <div className="form-actions">
           {e.id && can(user, 'accounts.delete') && <button type="button" className="btn danger" onClick={async () => { if (await confirmAsk({ message: 'Delete this expense?', danger: true, confirmText: t('delete') })) { await deleteExpense(ctx, e.id!); onSaved(); } }}>{t('delete')}</button>}

@@ -15,8 +15,11 @@ import { NetworkError, AppError, PIN_MISMATCH_MESSAGE } from '../../shared/util.
 export async function flushOutbox(ctx: Ctx, client: ServerClient): Promise<OpResult[]> {
   const all: OpResult[] = [];
   for (;;) {
-    const ops = await ctx.db.outbox.where('status').equals('pending').limit(50).sortBy('seq');
-    if (!ops.length) break;
+    const next = await ctx.db.outbox.where('status').equals('pending').limit(50).sortBy('seq');
+    if (!next.length) break;
+    // Pictures are big and the server takes up to 12 MB at a time: send about 8 MB, at least one change.
+    let bytes = 0;
+    const ops = next.filter((o, i) => { bytes += JSON.stringify(o.rows).length; return i === 0 || bytes <= 8_000_000; });
     const { results } = await client.request<{ results: OpResult[] }>('POST', '/api/ops', { ops: ops.map(stripLocal) }, { session: false });
     // The server wants this person to log in online first: keep it queued, undo nothing, try again later.
     const held = results.find(r => r.code === 'NEEDS_LOGIN');

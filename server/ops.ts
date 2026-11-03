@@ -30,8 +30,20 @@ function checkShape(op: Op) {
     if (op.deltas.some(d => d.delta >= 0 || d.create)) refuse('A sale can only take stock out');
     for (const r of op.rows) {
       if (r.tbl !== 'ledger') continue;
-      const l = r.row as { partyType?: string; credit?: number };
-      if (l.partyType !== 'patient' || l.credit) refuse('A sale can only add to what the customer owes');
+      const l = r.row as { partyType?: string; credit?: number; ref?: string; matchDoc?: string };
+      if (l.partyType !== 'patient') refuse('A sale can only add to what the customer owes');
+      if (!l.credit) continue;
+      // Part payment at the counter: only against this bill, and less than it.
+      const inv = op.rows.find(x => x.tbl === 'invoices')?.row as { number?: string; total?: number; payMethod?: string } | undefined;
+      if (l.ref !== 'PAYMENT' || inv?.payMethod !== 'credit' || l.matchDoc !== inv.number || !(l.credit < (inv.total || 0))) refuse('A sale can only add to what the customer owes');
+    }
+  }
+  if (op.kind === 'stock' && tables.includes('purchases')) {
+    // Payment on receipt: only against this bill, and not more than it.
+    const p = op.rows.find(x => x.tbl === 'purchases')?.row as { number?: string; total?: number } | undefined;
+    for (const r of op.rows) {
+      const l = r.row as { ref?: string; debit?: number; matchDoc?: string };
+      if (r.tbl === 'ledger' && l.ref === 'PAYMENT' && (l.matchDoc !== p?.number || (l.debit || 0) > (p?.total || 0))) refuse('A payment on receipt can only settle this bill');
     }
   }
   if (op.kind === 'void' && !allowed(['invoices', 'ledger', 'audit'])) refuse('A void can only change the bill');
@@ -64,7 +76,7 @@ export function salePerms(db: DB, op: Op): string[] {
     if (!(it.unitPrice > 0)) { need.add('pos.zero_price'); continue; }
     const med = getRow<Synced & { salePrice?: number }>(db, 'medicines', it.medicineId);
     const batch = getRow<Batch>(db, 'batches', it.batchId);
-    const bought = allRows<Synced & { salePrice?: number | null }>(db, 'purchaseItems', `WHERE json_extract(data, '$.medicineId') = ?`, it.medicineId).filter(p => !p.deleted);
+    const bought = allRows<Synced & { salePrice?: number | null }>(db, 'purchaseItems', `WHERE medicine_id = ?`, it.medicineId).filter(p => !p.deleted);
     const known = [med?.salePrice, batch?.salePrice, ...bought.map(p => p.salePrice)].filter((p): p is number => !!p && p > 0);
     if (known.length && !known.includes(it.unitPrice)) need.add('pos.price');
   }
@@ -146,6 +158,11 @@ export function neededPerms(db: DB, op: Op): string[] {
       if (r.tbl === 'audit') continue;
       if (r.tbl === 'ledger') { need.add((r.row as { partyType?: string }).partyType === 'supplier' ? 'suppliers.payment' : 'patients.payment'); continue; }
       const before = getRow(db, r.tbl, r.row.id);
+      // Choosing how a bill is paid is a money decision; saving a bill whose plan did not change is not.
+      if (r.tbl === 'purchases') {
+        const plan = (x: unknown) => (x as { payPlan?: { method?: string } | null } | null)?.payPlan;
+        if ((plan(r.row)?.method || 'credit') !== 'credit' && JSON.stringify(plan(r.row)) !== JSON.stringify(plan(before))) need.add('suppliers.payment');
+      }
       if (r.tbl === 'users' && before && onlyLogoutChanged(before as User, r.row as User)) { need.add('users.logout'); continue; }
       const p = rowPerm(r.tbl, before, r.row);
       if (p) need.add(p);
@@ -323,10 +340,13 @@ export function pullChanges(db: DB, since: number, limit = 2000): PullResponse {
     for (const r of rows) batch.push({ tbl: tbl as SyncTable, id: r.id, data: JSON.parse(r.data), hlc: r.hlc, rev: r.rev });
   }
   batch.sort((a, b) => a.rev - b.rev);
-  const changes = batch.slice(0, limit);
+  // Pictures are big: a page also stops at about 8 MB, always carrying at least one change.
+  let bytes = 0, fit = 0;
+  for (const c of batch.slice(0, limit)) { bytes += JSON.stringify(c.data).length; if (fit && bytes > 8_000_000) break; fit++; }
+  const changes = batch.slice(0, fit);
   const head = Number((db.prepare(`SELECT value FROM meta WHERE key = 'rev'`).get() as { value: string }).value);
   const rev = changes.length ? changes[changes.length - 1].rev : Math.max(since, changes.length ? 0 : head);
-  return { changes, rev, more: batch.length > limit };
+  return { changes, rev, more: batch.length > fit };
 }
 
 export { nextRev };

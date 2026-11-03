@@ -56,11 +56,18 @@ export interface Prescription extends Synced {
 export type PurchaseStatus = 'draft' | 'pending_approval' | 'sent' | 'ordered' | 'arrived' | 'received' | 'cancelled';
 export interface Purchase extends Synced {
   number: string; supplierId: string; date: string; status: PurchaseStatus;
+  /** Bill Reference: the vendor's own invoice number. Optional, and can be added after the stock is received. */
+  vendorRef?: string | null;
   total: number; paid: number; notes?: string; receivedAt?: string;
   /** Made by the low-stock watchdog. */
   auto?: boolean;
   submittedBy?: string | null; approvedBy?: string | null; sentAt?: string | null; arrivedAt?: string | null;
+  /** How this bill is paid when the stock is received. None or credit = nothing paid yet. Amount null = all of it. */
+  payPlan?: PayPlan | null;
 }
+export interface PayPlan { method: 'credit' | 'cash' | 'bank' | 'wallet'; amount?: number | null; accountId?: string | null; accountName?: string | null }
+/** A picture of a purchase bill or expense receipt. Kept apart from the record so reports never load pictures. */
+export interface Attachment extends Synced { docType: 'purchase' | 'expense'; docId: string; data: string; at: string; userName?: string | null }
 export interface PurchaseItem extends Synced {
   purchaseId: string; medicineId: string; qty: number; freeQty?: number; costPrice: number; salePrice?: number | null;
   batchNo: string; mfgDate?: string | null; expiryDate: string;
@@ -90,6 +97,8 @@ export interface LedgerEntry extends Synced {
   /** How a payment moved. Older entries have none and count as cash. */
   method?: 'cash' | 'bank' | 'wallet';
   accountId?: string | null; accountName?: string | null;
+  /** The invoice or bill number this payment or credit note settles. None = it settles the oldest open ones. */
+  matchDoc?: string | null;
 }
 export interface User extends Synced {
   username: string; name: string; email?: string; role: string; perms: string[]; active: boolean;
@@ -137,7 +146,7 @@ export interface AuditEntry extends Synced {
 /** All tables that sync between the server and devices. */
 export const SYNC_TABLES = [
   'medicines', 'batches', 'suppliers', 'patients', 'prescriptions', 'invoices', 'invoiceItems',
-  'purchases', 'purchaseItems', 'ledger', 'users', 'audit', 'shop', 'expenses', 'refunds', 'closings', 'moneyMoves',
+  'purchases', 'purchaseItems', 'ledger', 'users', 'audit', 'shop', 'expenses', 'refunds', 'closings', 'moneyMoves', 'attachments',
 ] as const;
 export type SyncTable = typeof SYNC_TABLES[number];
 

@@ -124,6 +124,10 @@ export function rowPerm(tbl: string, before: { deleted?: boolean } | null | unde
   if (tbl === 'shop') return 'settings.shop';
   if (tbl === 'batches') return 'inventory.edit';
   if (tbl === 'refunds') return 'invoices.refund';
+  if (tbl === 'attachments') {
+    const mod = (after as { docType?: string }).docType === 'expense' ? 'accounts' : 'purchases';
+    return after.deleted && !before?.deleted ? `${mod}.delete` : `${mod}.create`;
+  }
   const mod = TABLE_PERM[tbl];
   if (!mod) return null;
   if (!before) return `${mod}.create`;

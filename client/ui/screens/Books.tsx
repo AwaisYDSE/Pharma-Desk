@@ -59,10 +59,11 @@ function Statements({ data }: { data: BooksData }) {
   const users = useLive(() => ctx.db.users.toArray(), [], []);
   const [partyType, partyId] = party ? party.split(':') as ['patient' | 'supplier', string] : [null, null];
   const { rows, totals } = useMemo(() => statement(data, { ...range, side, method, partyType, partyId, accountId: account || null }), [data, range, side, method, party, account]);
+  const [shown, setShown] = useState(200);
   const grouped = useMemo(() => group ? groupEntries(rows, group, id => users.find(u => u.id === id)?.name || '—') : [], [rows, group, users]);
   const csv = () => downloadCsv(`pharmadesk-statement-${range.from}-to-${range.to}.csv`, [
-    ['Date', 'Type', 'Document', 'Customer or supplier', 'Payment', 'Amount', 'Money in', 'Money out'],
-    ...rows.map(e => [e.date, KIND[e.kind][0], e.doc, e.partyName, METHOD[e.method], r2(e.amount), r2(e.moneyIn), r2(e.moneyOut)]),
+    ['Date', 'Type', 'Document', 'Bill Reference', 'Customer or supplier', 'Payment', 'Amount', 'Money in', 'Money out'],
+    ...rows.map(e => [e.date, KIND[e.kind][0], e.doc, e.vendorRef || '', e.partyName, METHOD[e.method], r2(e.amount), r2(e.moneyIn), r2(e.moneyOut)]),
   ]);
   return (
     <>
@@ -87,10 +88,11 @@ function Statements({ data }: { data: BooksData }) {
         {group ? <div className="table-wrap"><table className="t"><thead><tr><th>Totals by</th><th>Entries</th><th>Sales</th><th>Purchases</th><th>Money in</th><th>Money out</th></tr></thead>
           <tbody>{grouped.map(g => <tr key={g.key}><td>{group === 'type' ? t((KIND as Record<string, [string, string]>)[g.key]?.[0] || g.key) : group === 'payment' || group === 'account' ? t((METHOD as Record<string, string>)[g.key] || g.key) : g.key}</td><td className="num">{g.count}</td><td className="num">{money(g.sales, lang)}</td><td className="num">{money(g.purchases, lang)}</td><td className="num">{money(g.moneyIn, lang)}</td><td className="num">{money(g.moneyOut, lang)}</td></tr>)}</tbody></table></div> :
         rows.length === 0 ? <Empty icon="chart" text="Nothing in these dates." /> :
-          <div className="table-wrap"><table className="t"><thead><tr><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Document')}</th><th>{t('Customer or supplier')}</th><th>{t('Payment')}</th><th>{t('Amount')}</th><th>{t('Money in')}</th><th>{t('Money out')}</th></tr></thead>
-            <tbody>{rows.map((e, i) => <motion.tr key={e.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i, 20) * 0.015 }}>
-              <td className="num">{e.date}</td><td><span className={`badge ${KIND[e.kind][1]}`}>{t(KIND[e.kind][0])}</span></td><td>{e.doc === 'PAYMENT' ? '' : e.doc}</td><td>{e.partyName}</td><td>{e.accountName || t(METHOD[e.method])}</td>
-              <td className="num">{money(e.amount, lang)}</td><td className="num">{e.moneyIn ? money(e.moneyIn, lang) : ''}</td><td className="num">{e.moneyOut ? money(e.moneyOut, lang) : ''}</td></motion.tr>)}</tbody></table></div>}
+          <div className="table-wrap"><table className="t"><thead><tr><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Document')}</th><th>{t('Bill Reference')}</th><th>{t('Customer or supplier')}</th><th>{t('Payment')}</th><th>{t('Amount')}</th><th>{t('Money in')}</th><th>{t('Money out')}</th></tr></thead>
+            <tbody>{rows.slice(0, shown).map(e => <tr key={e.id}>
+              <td className="num">{e.date}</td><td><span className={`badge ${KIND[e.kind][1]}`}>{t(KIND[e.kind][0])}</span></td><td>{e.doc === 'PAYMENT' ? '' : e.doc}</td><td>{e.vendorRef}</td><td>{e.partyName}</td><td>{e.accountName || t(METHOD[e.method])}</td>
+              <td className="num">{money(e.amount, lang)}</td><td className="num">{e.moneyIn ? money(e.moneyIn, lang) : ''}</td><td className="num">{e.moneyOut ? money(e.moneyOut, lang) : ''}</td></tr>)}</tbody></table>
+            {rows.length > shown && <div className="row" style={{ justifyContent: 'center', padding: 10 }}><button type="button" className="btn sm" onClick={() => setShown(shown + 200)}>{`Show ${Math.min(rows.length - shown, 200)} more of ${rows.length - shown}`}</button></div>}</div>}
       </section>
     </>
   );
@@ -170,9 +172,9 @@ function CashBook({ data }: { data: BooksData }) {
   const start = book === 'cash' ? shop?.openingCash || 0 : book === 'bank' ? shop?.openingBank || 0 : named.find(a => `acc:${a.id}` === book)?.opening || 0;
   const b = useMemo(() => moneyBook(data, book as 'cash', range.from, range.to, start), [data, book, range, start]);
   const csv = () => downloadCsv(`pharmadesk-${book}-book-${range.from}-to-${range.to}.csv`, [
-    ['Date', 'Type', 'Document', 'Customer or supplier', 'Money in', 'Money out', 'Balance'],
-    ['', 'Opening balance', '', '', '', '', r2(b.opening)],
-    ...b.rows.map(e => [e.date, KIND[e.kind][0], e.doc, e.partyName, r2(e.moneyIn), r2(e.moneyOut), r2(e.balance)]),
+    ['Date', 'Type', 'Document', 'Bill Reference', 'Customer or supplier', 'Money in', 'Money out', 'Balance'],
+    ['', 'Opening balance', '', '', '', '', '', r2(b.opening)],
+    ...b.rows.map(e => [e.date, KIND[e.kind][0], e.doc, e.vendorRef || '', e.partyName, r2(e.moneyIn), r2(e.moneyOut), r2(e.balance)]),
   ]);
   return (
     <>
@@ -187,8 +189,8 @@ function CashBook({ data }: { data: BooksData }) {
       </div>
       <section className="card">
         {b.rows.length === 0 ? <Empty icon="chart" text="Nothing in these dates." /> :
-          <div className="table-wrap"><table className="t"><thead><tr><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Document')}</th><th>{t('Customer or supplier')}</th><th>{t('Money in')}</th><th>{t('Money out')}</th><th>{t('Balance')}</th></tr></thead>
-            <tbody>{b.rows.map(e => <tr key={e.id}><td className="num">{e.date}</td><td><span className={`badge ${KIND[e.kind][1]}`}>{t(KIND[e.kind][0])}</span></td><td>{e.doc === 'PAYMENT' ? '' : e.doc}</td><td>{e.partyName}</td>
+          <div className="table-wrap"><table className="t"><thead><tr><th>{t('Date')}</th><th>{t('Type')}</th><th>{t('Document')}</th><th>{t('Bill Reference')}</th><th>{t('Customer or supplier')}</th><th>{t('Money in')}</th><th>{t('Money out')}</th><th>{t('Balance')}</th></tr></thead>
+            <tbody>{b.rows.map(e => <tr key={e.id}><td className="num">{e.date}</td><td><span className={`badge ${KIND[e.kind][1]}`}>{t(KIND[e.kind][0])}</span></td><td>{e.doc === 'PAYMENT' ? '' : e.doc}</td><td>{e.vendorRef}</td><td>{e.partyName}</td>
               <td className="num">{e.moneyIn ? money(e.moneyIn, lang) : ''}</td><td className="num">{e.moneyOut ? money(e.moneyOut, lang) : ''}</td><td className="num"><strong>{money(e.balance, lang)}</strong></td></tr>)}</tbody></table></div>}
       </section>
     </>
@@ -202,12 +204,12 @@ function Owes({ data }: { data: BooksData }) {
   const a = useMemo(() => agedBalances(data, who, today), [data, who, today]);
   return (
     <>
-      <div className="row"><h1>Who owes what</h1><span className="spacer" />
-        <div className="tabs" role="tablist">{([['patient', 'Customers owe us'], ['supplier', 'We owe suppliers']] as ['patient' | 'supplier', string][]).map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={who === k} className={who === k ? 'on' : ''} onClick={() => setWho(k)}>{l}</button>)}</div></div>
-      <div className="grid g-auto"><Kpi label={who === 'patient' ? 'Customers owe us' : 'We owe suppliers'} value={a.total} color={who === 'patient' ? 'var(--ok)' : 'var(--bad)'} /></div>
+      <div className="row"><h1>Aged Partner Balance</h1><span className="spacer" />
+        <div className="tabs" role="tablist">{([['patient', 'Aged Receivable'], ['supplier', 'Aged Payable']] as ['patient' | 'supplier', string][]).map(([k, l]) => <button type="button" key={k} role="tab" aria-selected={who === k} className={who === k ? 'on' : ''} onClick={() => setWho(k)}>{l}</button>)}</div></div>
+      <div className="grid g-auto"><Kpi label={who === 'patient' ? 'Aged Receivable' : 'Aged Payable'} value={a.total} color={who === 'patient' ? 'var(--ok)' : 'var(--bad)'} /></div>
       <section className="card">
         {a.rows.length === 0 ? <Empty icon="chart" text="Nothing is owed." /> :
-          <div className="table-wrap"><table className="t"><thead><tr><th>{t('Name')}</th><th>{t('Up to 30 days')}</th><th>{t('31 to 60 days')}</th><th>{t('61 to 90 days')}</th><th>{t('Over 90 days')}</th><th>{t('Balance')}</th></tr></thead>
+          <div className="table-wrap"><table className="t"><thead><tr><th>{t('Partner')}</th><th>1 - 30</th><th>31 - 60</th><th>61 - 90</th><th>{t('Older')}</th><th>{t('Total')}</th></tr></thead>
             <tbody>{a.rows.map(r => <tr key={r.partyId}><td>{r.name}</td><td className="num">{money(r.current, lang)}</td><td className="num">{money(r.d31, lang)}</td><td className="num">{money(r.d61, lang)}</td><td className="num" style={r.d90 ? { color: 'var(--bad)' } : undefined}>{money(r.d90, lang)}</td><td className="num"><strong>{money(r.balance, lang)}</strong></td></tr>)}</tbody></table></div>}
       </section>
     </>
@@ -220,10 +222,10 @@ function Position({ data }: { data: BooksData }) {
   const p = useMemo(() => businessPosition(data, isoDate(), shop?.openingCash || 0, (shop?.openingBank || 0) + open('bank'), open('wallet')), [data, shop]);
   return (
     <>
-      <div className="row"><h1>Business position</h1></div>
+      <div className="row"><h1>Balance Sheet</h1></div>
       <div className="grid g-auto">
-        <Kpi i={0} label="Cash" value={p.cash} /><Kpi i={1} label="Card / bank" value={p.bank} /><Kpi i={1} label="Mobile wallet" value={p.wallet} /><Kpi i={2} label="Stock at cost" value={p.stock} /><Kpi i={3} label="Customers owe us" value={p.receivable} color="var(--ok)" />
-        <Kpi i={4} label="We owe suppliers" value={p.payable} color="var(--bad)" /><Kpi i={5} label="Business worth" value={p.worth} color="var(--info)" />
+        <Kpi i={0} label="Cash" value={p.cash} /><Kpi i={1} label="Card / bank" value={p.bank} /><Kpi i={1} label="Mobile wallet" value={p.wallet} /><Kpi i={2} label="Stock Valuation" value={p.stock} /><Kpi i={3} label="Receivables" value={p.receivable} color="var(--ok)" />
+        <Kpi i={4} label="Payables" value={p.payable} color="var(--bad)" /><Kpi i={5} label="Equity" value={p.worth} color="var(--info)" />
       </div>
       <p className="small muted">Worked out from what is recorded in PharmaDesk. It does not include money the business had before it started using PharmaDesk, unless you add it under Starting balances.</p>
       <Opening data={data} />

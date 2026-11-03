@@ -136,7 +136,11 @@ export function totals(cart: Cart) {
     { billDiscount: cart.billDiscount, inclusive: cart.inclusive });
 }
 
-export interface Payment { method: Invoice['payMethod']; paid: number; accountId?: string | null; accountName?: string | null; payRef?: string | null }
+export interface Payment {
+  method: Invoice['payMethod']; paid: number; accountId?: string | null; accountName?: string | null; payRef?: string | null;
+  /** Part payment on a credit sale: this much is paid now, the rest stays on the customer's account. */
+  part?: { amount: number; method: 'cash' | 'bank' | 'wallet'; accountId?: string | null; accountName?: string | null } | null;
+}
 
 /**
  * Checkout. Builds the invoice + items + stock deltas as ONE operation.
@@ -159,13 +163,15 @@ export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: Serve
   const free = cart.lines.find(l => !(l.unitPrice > 0));
   if (free && !can(ctx.user, 'pos.zero_price') && !opts.supervisorId) throw new OverrideRequiredError('pos.zero_price', `${free.medicine.name} is at price 0. Type its price, or a supervisor can approve selling it free.`);
   if (pay.method !== 'credit' && pay.paid < t.total) throw new AppError('UNDERPAID', 'Amount received is less than the total');
+  const part = pay.method === 'credit' && pay.part && pay.part.amount > 0 ? pay.part : null;
+  if (part && (!Number.isInteger(part.amount) || part.amount >= t.total)) throw new AppError('INVALID', 'The amount paid now must be less than the total');
 
   const invoiceId = uuid();
   const now = new Date().toISOString();
   const invoice: Invoice = {
     id: invoiceId, number: await nextBillNumber(ctx), patientId: cart.patientId, cashierId: ctx.user.id, createdAt: now,
     status: pay.method === 'credit' ? 'credit' : 'paid', gross: t.gross, discount: t.discount, tax: t.tax, total: t.total,
-    paid: pay.method === 'credit' ? 0 : pay.paid, change: pay.method === 'credit' ? 0 : pay.paid - t.total, payMethod: pay.method,
+    paid: pay.method === 'credit' ? part?.amount || 0 : pay.paid, change: pay.method === 'credit' ? 0 : pay.paid - t.total, payMethod: pay.method,
     deviceId: ctx.deviceId, accountId: pay.accountId ?? null, accountName: pay.accountName ?? null, payRef: pay.payRef ?? null, hlc: stamp(ctx),
     ...(opts.supervisorId ? { note: `approved by ${opts.supervisorId}` } : {}),
   };
@@ -180,6 +186,7 @@ export async function checkout(ctx: Ctx, cart: Cart, pay: Payment, client: Serve
     ...items.map(row => ({ tbl: 'invoiceItems' as const, row })),
   ];
   if (pay.method === 'credit') rows.push({ tbl: 'ledger' as never, row: { id: uuid(), partyType: 'patient', partyId: cart.patientId, date: isoDate(), debit: t.total, credit: 0, ref: invoice.number, note: 'Credit sale', hlc: stamp(ctx) } as never });
+  if (part) rows.push({ tbl: 'ledger' as never, row: { id: uuid(), partyType: 'patient', partyId: cart.patientId, date: isoDate(), debit: 0, credit: part.amount, ref: 'PAYMENT', note: 'Paid at the counter', method: part.method, accountId: part.accountId ?? null, accountName: part.accountName ?? null, matchDoc: invoice.number, hlc: stamp(ctx) } as never });
   const overrides = cart.lines.filter(l => l.overriddenBy);
   const repriced = cart.lines.filter(l => l.listPrice != null && l.unitPrice !== l.listPrice);
   if (repriced.length) rows.push({ tbl: 'audit' as never, row: { id: uuid(), at: now, userId: ctx.user.id, userName: ctx.user.name, deviceId: ctx.deviceId, action: 'pos.price_change', entity: 'invoices', entityId: invoiceId, details: { bill: invoice.number, approvedBy: opts.supervisorId || ctx.user.id, items: repriced.map(l => ({ medicine: l.medicine.name, from: l.listPrice, to: l.unitPrice })) }, hlc: stamp(ctx) } as never });
@@ -314,7 +321,7 @@ export async function refundItems(ctx: Ctx, invoiceId: string, lines: { itemId: 
   const deltas: Delta[] = out.map(i => ({ batchId: i.batchId, medicineId: i.medicineId, delta: i.qty }));
   const audit = { id: uuid(), at: now, userId: ctx.user!.id, userName: ctx.user!.name, deviceId: ctx.deviceId, action: 'invoice.refund', entity: 'invoices', entityId: invoiceId, details: { number: inv.number, refund: refund.number, total, reason: refund.reason, approvedBy: approver.name }, hlc: stamp(ctx) };
   const rows: { tbl: string; row: unknown }[] = [{ tbl: 'refunds', row: refund }, { tbl: 'invoices', row: updated }, { tbl: 'audit', row: audit }];
-  if (credit && inv.patientId) rows.push({ tbl: 'ledger', row: { id: uuid(), partyType: 'patient', partyId: inv.patientId, date: isoDate(), debit: 0, credit: total, ref: refund.number, note: `Items returned (${inv.number})`, hlc: stamp(ctx) } });
+  if (credit && inv.patientId) rows.push({ tbl: 'ledger', row: { id: uuid(), partyType: 'patient', partyId: inv.patientId, date: isoDate(), debit: 0, credit: total, ref: refund.number, note: `Items returned (${inv.number})`, matchDoc: inv.number, hlc: stamp(ctx) } });
   await db.transaction('rw', [db.refunds, db.invoices, db.batches, db.ledger, db.outbox, db.audit], async () => {
     for (const r of rows) await db.table(r.tbl).put(r.row);
     for (const d of deltas) { const b = await db.batches.get(d.batchId); if (b) await db.batches.update(d.batchId, { qty: b.qty + d.delta }); }

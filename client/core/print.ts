@@ -62,7 +62,7 @@ export function receiptHtml(r: ReceiptData): string {
   ${inv.discount ? `<tr><td>Discount</td><td class="n">- ${fmt(inv.discount, c)}</td></tr>` : ''}
   ${inv.tax ? `<tr><td>${escapeHtml(b.taxLabel)}${s.pricesIncludeGst ? ' (incl.)' : ''}</td><td class="n">${fmt(inv.tax, c)}</td></tr>` : ''}
   <tr class="big"><td>TOTAL</td><td class="n">${fmt(inv.total, c)}</td></tr>
-  <tr><td>Paid (${escapeHtml(inv.accountName || inv.payMethod)}${inv.payRef ? ' · ' + escapeHtml(inv.payRef) : ''})</td><td class="n">${fmt(inv.paid, c)}</td></tr>
+  <tr><td>Paid (${escapeHtml(inv.accountName || (inv.payMethod === 'credit' ? 'on account' : inv.payMethod))}${inv.payRef ? ' · ' + escapeHtml(inv.payRef) : ''})</td><td class="n">${fmt(inv.paid, c)}</td></tr>
   ${inv.change ? `<tr><td>Change</td><td class="n">${fmt(inv.change, c)}</td></tr>` : ''}
   ${inv.status === 'credit' ? `<tr><td>Balance due</td><td class="n">${fmt(inv.total - inv.paid, c)}</td></tr>` : ''}</table>
   ${inv.refunded ? `<table class="t"><tr><td>Returned</td><td class="n">- ${fmt(inv.refunded, c)}</td></tr></table>` : ''}
@@ -91,6 +91,7 @@ export function escPos(r: ReceiptData): Uint8Array {
   push(0x1b, 0x45, 1); text(pad('TOTAL', fmt(inv.total, c))); push(0x1b, 0x45, 0);
   text(pad('Paid', fmt(inv.paid, c)));
   if (inv.change) text(pad('Change', fmt(inv.change, c)));
+  if (inv.status === 'credit') text(pad('Balance due', fmt(inv.total - inv.paid, c)));
   push(0x1b, 0x61, 1); text('\n' + (r.settings.receiptFooter || '') + (r.invoice.fbrNumber ? '\nFBR ' + r.invoice.fbrNumber : '') + '\n\n\n'); push(0x1d, 0x56, 0x41, 0x03);
   return new Uint8Array(out);
 }
