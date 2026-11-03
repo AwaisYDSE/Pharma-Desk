@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
-  "mandatory": false,
+  "version": "1.1.1",
+  "mandatory": true,
   "minVersion": "1.0.0",
-  "notes": "Security fixes, full accounts, branches and automatic updates."
+  "notes": "New accounts in Odoo wording: Partner Ledger, General Ledger, Trial Balance. Cash, credit and part payment on purchases and sales. Register Payment. Vendor invoice number. Pictures on purchases and expenses. Financial years."
 }
