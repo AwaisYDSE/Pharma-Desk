@@ -452,7 +452,7 @@ export function createApp(db: DB, opts: AppOptions = {}) {
 
   /* ---------- the app itself (so the server PC and LAN phones can open it) ---------- */
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {
-    app.use(express.static(opts.staticDir, { index: 'index.html', maxAge: '1h' }));
+    app.use(express.static(opts.staticDir, { index: 'index.html', maxAge: 0 }) /* always ask the server, so an update shows at once; the offline copy is the service worker's */);
     app.get(/^\/(?!api|local).*/, (_req, res) => res.sendFile(path.join(opts.staticDir!, 'index.html')));
   }
 

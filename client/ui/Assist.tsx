@@ -7,7 +7,7 @@ import { Icon, Modal } from './components.tsx';
 import { can, moduleOn, NAV_MODULES } from '../../shared/permissions.ts';
 import { APP_VERSION } from '../../shared/version.ts';
 import { VENDOR } from '../../shared/vendor.ts';
-import { updateNeed, type LatestRelease, type UpdateNeed } from '../../shared/update.ts';
+import { compareVersions, updateNeed, type LatestRelease, type UpdateNeed } from '../../shared/update.ts';
 import { KEY_NAMES } from '../../shared/keys.ts';
 import { UpdateGate } from './screens/Lock.tsx';
 
@@ -96,6 +96,23 @@ export function KeyboardAssist({ go }: { go: (r: string) => void }) {
   );
 }
 
+/**
+ * The server PC already has a newer version than this open window: fetch the new files and reopen.
+ * Returns false if that was just tried and did not help, so a window can never reload for ever.
+ */
+async function reopenNewVersion(): Promise<boolean> {
+  try {
+    const last = Number(sessionStorage.getItem('pd-reopened') || 0);
+    if (Date.now() - last < 120_000) return false;
+    sessionStorage.setItem('pd-reopened', String(Date.now()));
+  } catch { /* no storage: still try once */ }
+  await Promise.all(['./', './index.html', './app.js', './app.css', './sw.js'].map(u => fetch(u, { cache: 'reload' }).catch(() => null)));
+  const reg = await navigator.serviceWorker?.getRegistration().catch(() => undefined);
+  await reg?.update().catch(() => {});
+  location.reload();
+  return true;
+}
+
 /** Watches for new versions. Optional: a notice with Later. Must-update: blocks the whole app. */
 export function useUpdate() {
   const { isServerPc } = useStore();
@@ -103,14 +120,25 @@ export function useUpdate() {
   useEffect(() => {
     const check = () => fetch(`${VENDOR.appUrl.replace(/\/?$/, '/')}version.json?t=${Date.now()}`).then(r => r.ok ? r.json() : null).then(d => { if (d) setLatest(d); }).catch(() => {});
     const a = setTimeout(check, 4000), b = setInterval(check, 30 * 60_000);
-    return () => { clearTimeout(a); clearInterval(b); };
+    // After the server PC updates, every open window moves to the new version by itself.
+    const server = () => fetch('/api/hello').then(r => r.ok ? r.json() : null).then((h: { v?: string } | null) => { if (h?.v && compareVersions(h.v, APP_VERSION) > 0) void reopenNewVersion(); }).catch(() => {});
+    const c = setTimeout(server, 1500), d = setInterval(server, 20_000);
+    return () => { clearTimeout(a); clearInterval(b); clearTimeout(c); clearInterval(d); };
   }, []);
   const apply = async () => {
     setBusy(true); setError('');
     try {
       if (isServerPc) {
         const r = await fetch('/local/update', { method: 'POST' });
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || 'The update could not be installed');
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({})) as { code?: string; message?: string };
+          // The server PC is already on the new version; only this window is behind.
+          if (body.code === 'UP_TO_DATE') {
+            if (await reopenNewVersion()) return;
+            throw new Error('Close PharmaDesk and open it again to finish updating');
+          }
+          throw new Error(body.message || 'The update could not be installed');
+        }
         setError('The installer is opening. Please follow it, then PharmaDesk restarts by itself.');
       } else if (location.href.startsWith(VENDOR.appUrl)) {
         const reg = await navigator.serviceWorker?.getRegistration();
