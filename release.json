@@ -1,6 +1,6 @@
 {
-  "version": "1.1.1",
-  "mandatory": true,
+  "version": "1.1.2",
+  "mandatory": false,
   "minVersion": "1.0.0",
-  "notes": "New accounts in Odoo wording: Partner Ledger, General Ledger, Trial Balance. Cash, credit and part payment on purchases and sales. Register Payment. Vendor invoice number. Pictures on purchases and expenses. Financial years."
+  "notes": "Fix: the app no longer gets stuck on Update required after updating."
 }
