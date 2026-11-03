@@ -68,7 +68,7 @@ describe('Money through purchases, sales and ledgers', () => {
     await modal.locator('img').first().waitFor({ timeout: 5000 });
     await shot('1-new-purchase');
     await modal.getByRole('button', { name: 'Save' }).click();
-    await page.getByRole('button', { name: 'Receive stock' }).last().click();
+    await page.locator('.modal, [role=dialog]', { hasText: 'Waiting for approval' }).getByRole('button', { name: 'Receive stock' }).click();
     await page.waitForTimeout(800);
     await shot('2-purchase-received');
     expect(await page.locator('.modal, [role=dialog]').last().innerText()).toMatch(/Amount Due\s*Rs\s*50\.00/);
