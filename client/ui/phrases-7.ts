@@ -75,6 +75,7 @@ export const P7: Record<string, Tr> = {
   'October': ['اکتوبر', 'أكتوبر', 'अक्टूबर', 'Octubre'],
   'November': ['نومبر', 'نوفمبر', 'नवंबर', 'Noviembre'],
   'December': ['دسمبر', 'ديسمبر', 'दिसंबर', 'Diciembre'],
+  'Close PharmaDesk and open it again to finish updating': ['اپ ڈیٹ مکمل کرنے کے لیے فارما ڈیسک بند کر کے دوبارہ کھولیں', 'أغلق PharmaDesk وافتحه مرة أخرى لإكمال التحديث', 'अपडेट पूरा करने के लिए PharmaDesk बंद करके दोबारा खोलें', 'Cierre PharmaDesk y ábralo de nuevo para terminar la actualización'],
   'Payment Status': ['ادائیگی کی حالت', 'حالة الدفع', 'भुगतान स्थिति', 'Estado del pago'],
   'Not Paid': ['ادا نہیں ہوا', 'غير مدفوع', 'भुगतान नहीं हुआ', 'No pagado'],
   'Partial': ['جزوی', 'جزئي', 'आंशिक', 'Parcial'],
